@@ -1,10 +1,14 @@
+import { fetchAnthropicMessages } from "@/lib/anthropic-fetch";
 import { buildAskSystemPrompt, buildAskUserPrompt } from "@/lib/prompts";
+import { loadCompanyFromIngestion } from "@/lib/ingestion-client";
 import { getMockAskResponse } from "@/lib/mock-data";
-import type { AskResponseBody } from "@/lib/types";
+import { inferPeerTickers } from "@/lib/peer-tickers";
+import type { AskResponseBody, CompanyPayload } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 const BodySchema = z.object({
   ticker: z.string().min(1),
@@ -127,7 +131,7 @@ async function callOpenAI(
         },
       ],
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(90_000),
   });
 
   if (!res.ok) {
@@ -159,25 +163,19 @@ async function callAnthropic(
   const model =
     envTrim("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
+  const res = await fetchAnthropicMessages(
+    key,
+    {
       model,
-      // JSON payloads need headroom; 700 often truncates mid-object → 502
-      max_tokens: 2048,
+      max_tokens: 4096,
       temperature: 0.2,
       system:
         system +
         " Respond with raw JSON only (no markdown fences), same keys as the user message.",
       messages: [{ role: "user", content: user + JSON_OUTPUT_SUFFIX }],
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
+    },
+    { timeoutMs: 90_000, maxRetries: 5 },
+  );
 
   if (!res.ok) {
     const detail = await readApiError(res);
@@ -203,7 +201,26 @@ export async function POST(req: Request) {
 
   const { ticker, question, companyContext } = parsedBody.data;
   const system = buildAskSystemPrompt();
-  const user = buildAskUserPrompt({ ticker, question, companyContext });
+
+  const peerTickers = inferPeerTickers(question, ticker, 2);
+  const peerContexts: CompanyPayload[] = [];
+  for (const pt of peerTickers) {
+    try {
+      const pc = await loadCompanyFromIngestion(pt);
+      if (!pc.meta.mock && pc.ticker.toUpperCase() !== ticker.trim().toUpperCase()) {
+        peerContexts.push(pc);
+      }
+    } catch {
+      /* skip missing peer */
+    }
+  }
+
+  const user = buildAskUserPrompt({
+    ticker,
+    question,
+    companyContext: companyContext as CompanyPayload | null | undefined,
+    peerContexts,
+  });
 
   const openai = envTrim("OPENAI_API_KEY");
   const anthropic = envTrim("ANTHROPIC_API_KEY");

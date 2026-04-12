@@ -1,4 +1,5 @@
 import { CompanySearch } from "@/components/search/company-search";
+import { HomeTickerChips } from "@/components/search/home-ticker-chips";
 
 const FILING_HELP = [
   {
@@ -40,13 +41,8 @@ export default function HomePage() {
         <div className="mx-auto mt-8 max-w-xl text-left">
           <CompanySearch />
         </div>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-sm text-slate-500">
-          <span>Try:</span>
-          {["AAPL", "MSFT", "NVDA", "TSLA"].map((t) => (
-            <span key={t} className="rounded-full bg-slate-100 px-3 py-1">
-              {t}
-            </span>
-          ))}
+        <div className="mt-6">
+          <HomeTickerChips />
         </div>
       </section>
 

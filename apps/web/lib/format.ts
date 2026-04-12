@@ -30,6 +30,17 @@ export function formatDate(iso: string): string {
   }
 }
 
+/** Listing venue label (e.g. Apple on NASDAQ) — not the same as a benchmark index. */
+export function formatExchangeLabel(raw?: string): string {
+  if (!raw?.trim()) return "Exchange unknown";
+  const t = raw.trim();
+  const upper = t.toUpperCase();
+  if (upper.includes("NASDAQ")) return "NASDAQ";
+  if (upper.includes("NYSE")) return "NYSE";
+  if (upper.includes("AMEX")) return "AMEX";
+  return t;
+}
+
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }

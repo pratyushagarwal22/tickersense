@@ -98,6 +98,7 @@ def build_section_placeholders(filings: list[FilingItem]) -> list[FilingSectionE
             return f"Latest {form} on file with the SEC is dated {date}. "
         return f"We could not attach a direct {form} link in this view. "
 
+    # Order: proxy (governance) before MD&A so shorter cards can sit higher in multi-column layouts.
     return [
         FilingSectionExcerpt(
             id="business",
@@ -122,6 +123,17 @@ def build_section_placeholders(filings: list[FilingItem]) -> list[FilingSectionE
             source_url=tenk,
         ),
         FilingSectionExcerpt(
+            id="governance",
+            label="Pay & board (proxy statement)",
+            form="DEF 14A",
+            excerpt=(
+                f"{lead(def_d, 'DEF 14A')}"
+                "The proxy explains how executives are paid and how the board oversees the company. "
+                "Use it to see incentives—not to predict the stock price."
+            ),
+            source_url=def14a,
+        ),
+        FilingSectionExcerpt(
             id="mdna",
             label="How management explains results (MD&A)",
             form="10-Q",
@@ -143,17 +155,6 @@ def build_section_placeholders(filings: list[FilingItem]) -> list[FilingSectionE
                 "The SEC company-facts API snapshot often omits these dimensional rows; read the linked filing for authoritative segment figures."
             ),
             source_url=tenq or tenk,
-        ),
-        FilingSectionExcerpt(
-            id="governance",
-            label="Pay & board (proxy statement)",
-            form="DEF 14A",
-            excerpt=(
-                f"{lead(def_d, 'DEF 14A')}"
-                "The proxy explains how executives are paid and how the board oversees the company. "
-                "Use it to see incentives—not to predict the stock price."
-            ),
-            source_url=def14a,
         ),
     ]
 
@@ -287,6 +288,8 @@ def pick_facts(company_facts: dict[str, Any]) -> list[dict[str, str | None]]:
         )
 
     other = [
+        ("GrossProfit", "Gross profit"),
+        ("OperatingIncomeLoss", "Operating income"),
         ("NetIncomeLoss", "Net income"),
         ("EarningsPerShareDiluted", "EPS (diluted)"),
         ("Assets", "Total assets"),
@@ -296,7 +299,7 @@ def pick_facts(company_facts: dict[str, Any]) -> list[dict[str, str | None]]:
         if val:
             out.append({"label": label, "value": val, "period": end, "source": "SEC XBRL company facts"})
 
-    return out[:6]
+    return out[:8]
 
 
 def _rows_from_units_node(node: dict[str, Any]) -> list[dict[str, Any]]:

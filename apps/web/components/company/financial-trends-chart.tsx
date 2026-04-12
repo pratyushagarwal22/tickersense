@@ -136,10 +136,10 @@ export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
               />
               {chartData.some((r) => r.revenue != null) ? (
                 <Line
-                  type="linear"
+                  type="monotone"
                   dataKey="revenue"
                   name="Revenue"
-                  stroke="#0d9488"
+                  stroke="#2563eb"
                   strokeWidth={2}
                   dot={false}
                   connectNulls={false}
@@ -147,10 +147,10 @@ export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
               ) : null}
               {chartData.some((r) => r.netIncome != null) ? (
                 <Line
-                  type="linear"
+                  type="monotone"
                   dataKey="netIncome"
                   name="Net income"
-                  stroke="#2563eb"
+                  stroke="#16a34a"
                   strokeWidth={2}
                   dot={false}
                   connectNulls={false}
@@ -158,7 +158,7 @@ export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
               ) : null}
               {chartData.some((r) => r.opex != null) ? (
                 <Line
-                  type="linear"
+                  type="monotone"
                   dataKey="opex"
                   name="Operating expenses"
                   stroke="#ea580c"

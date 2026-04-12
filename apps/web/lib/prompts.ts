@@ -1,4 +1,4 @@
-import type { CompanyPayload } from "@/lib/types";
+import type { CompanyPayload, WorkspaceAiEnrichment } from "@/lib/types";
 
 export function buildAskSystemPrompt(): string {
   return [
@@ -9,6 +9,9 @@ export function buildAskSystemPrompt(): string {
     "Before saying a figure or prior period is missing, scan revenue_series, net_income_series, operating_expenses_series, cost_of_revenue_series, segment_facts (when present), and financials for matching period_end or fiscal labels.",
     "For segment-level operating income or revenue (e.g., AWS vs. retail): use segment_facts rows (metric_tag, segment_label, period_end, value_usd) when the array is non-empty. Labels may be terse XBRL member names—map them to the user’s wording when obvious.",
     "When segment_facts is empty or does not list the segment asked about, rely on segment_reporting (summary + filing link) and filings — the public company-facts bulk feed often omits dimensional segment tables. Do not fabricate segment figures.",
+    "When workspace_ai is present, use workspace_ai.segment_bullets for segment/product/geography questions if bullets contain relevant facts; treat them as excerpt-based, not a substitute for the full filing.",
+    "When workspace_ai.mdna_excerpt, workspace_ai.risk_factors_excerpt, or workspace_ai.governance_excerpt is present, use that plain text for MD&A, risk themes, and proxy/governance topics—summarize what it says before claiming the topic is missing from context.",
+    "When the JSON includes peer_companies (non-empty), you may compare disclosures, metrics, or qualitative risks across those issuers using only data present in primary_company and each peer payload. If a peer field is empty, say so—do not invent peer-specific numbers.",
     "If two periods needed for YoY or growth appear in those arrays or financials, compute or quote them — do not claim the prior period is unavailable.",
     "The main answer, bullet_points, and highlights must be mutually consistent; never contradict yourself in the same response.",
     "If information is truly absent from context, say so briefly and name the filing or field to check on SEC.gov.",
@@ -17,8 +20,8 @@ export function buildAskSystemPrompt(): string {
   ].join(" ");
 }
 
-/** Enough room for multi-year SEC series + sampled prices + filings. */
-const CONTEXT_CHAR_BUDGET = 96_000;
+/** Enough room for primary + slim peer payloads + sampled prices + filing excerpts. */
+const CONTEXT_CHAR_BUDGET = 120_000;
 
 const SERIES_CAP = 120;
 const SEGMENT_FACTS_CAP = 120;
@@ -41,6 +44,53 @@ function trimSegmentFacts(company: CompanyPayload): NonNullable<CompanyPayload["
   return s.length <= SEGMENT_FACTS_CAP ? s : s.slice(-SEGMENT_FACTS_CAP);
 }
 
+function trimWorkspaceAi(ai: WorkspaceAiEnrichment | undefined): WorkspaceAiEnrichment | null {
+  if (!ai) return null;
+  const sm = ai.section_summaries ?? {};
+  const trimmedSummaries: WorkspaceAiEnrichment["section_summaries"] = {};
+  for (const [k, v] of Object.entries(sm)) {
+    if (typeof v === "string" && v.trim()) {
+      trimmedSummaries[k as keyof WorkspaceAiEnrichment["section_summaries"]] = v.length > 1600 ? v.slice(0, 1600) + "…" : v;
+    }
+  }
+  const mdna = ai.mdna_excerpt?.trim();
+  const risks = ai.risk_factors_excerpt?.trim();
+  const gov = ai.governance_excerpt?.trim();
+  return {
+    segment_bullets: (ai.segment_bullets ?? []).slice(0, 28),
+    section_summaries: trimmedSummaries,
+    governance_bullets: (ai.governance_bullets ?? []).slice(0, 10),
+    deeper_reading: (ai.deeper_reading ?? []).slice(0, 14),
+    ...(mdna ? { mdna_excerpt: mdna.length > 11_000 ? mdna.slice(0, 11_000) + "…" : mdna } : {}),
+    ...(risks ? { risk_factors_excerpt: risks.length > 8000 ? risks.slice(0, 8000) + "…" : risks } : {}),
+    ...(gov ? { governance_excerpt: gov.length > 6000 ? gov.slice(0, 6000) + "…" : gov } : {}),
+  };
+}
+
+export function buildSlimPeerContext(company: CompanyPayload) {
+  const ai = trimWorkspaceAi(company.workspace_ai);
+  return {
+    ticker: company.ticker,
+    name: company.name,
+    exchange: company.exchange,
+    financials: company.financials.slice(0, 8),
+    filings: company.filings.slice(0, 5).map((f) => ({
+      form: f.form,
+      filed_at: f.filed_at,
+      filing_url: f.filing_url,
+    })),
+    insights: company.insights.map((i) => ({
+      title: i.title,
+      bullets: i.bullets.slice(0, 5),
+    })),
+    workspace_ai: ai,
+    revenue_series: trimSeries(company.revenue_series, 28),
+    net_income_series: trimSeries(company.net_income_series, 28),
+    cost_of_revenue_series: trimSeries(company.cost_of_revenue_series, 20),
+    operating_expenses_series: trimSeries(company.operating_expenses_series, 28),
+  };
+}
+
 function buildContextPayload(company: CompanyPayload) {
   return {
     ticker: company.ticker,
@@ -60,6 +110,7 @@ function buildContextPayload(company: CompanyPayload) {
     cost_of_revenue_series: trimSeries(company.cost_of_revenue_series, SERIES_CAP),
     segment_facts: trimSegmentFacts(company),
     segment_reporting: company.segment_reporting ?? null,
+    workspace_ai: trimWorkspaceAi(company.workspace_ai),
     price_history: samplePriceHistory(company.price_history),
     benchmark_label: company.benchmark_label,
     benchmark_history: samplePriceHistory(company.benchmark_history ?? []),
@@ -70,10 +121,18 @@ export function buildAskUserPrompt(input: {
   ticker: string;
   question: string;
   companyContext?: CompanyPayload | null;
+  peerContexts?: CompanyPayload[];
 }): string {
   let ctx = "No structured company context was provided.";
   if (input.companyContext) {
-    const raw = JSON.stringify(buildContextPayload(input.companyContext), null, 2);
+    const primary = buildContextPayload(input.companyContext);
+    const peers = (input.peerContexts ?? []).filter((p) => p.ticker.toUpperCase() !== input.ticker.toUpperCase());
+    const peerPayloads = peers.map((p) => buildSlimPeerContext(p));
+    const bundle = {
+      primary_company: primary,
+      peer_companies: peerPayloads,
+    };
+    const raw = JSON.stringify(bundle, null, 2);
     ctx =
       raw.length > CONTEXT_CHAR_BUDGET
         ? `${raw.slice(0, CONTEXT_CHAR_BUDGET)}\n…[context truncated for speed]`
@@ -84,7 +143,7 @@ export function buildAskUserPrompt(input: {
     `Ticker: ${input.ticker}`,
     `User question: ${input.question}`,
     "",
-    "Company context (JSON). revenue_series, net_income_series, operating_expenses_series, cost_of_revenue_series are USD per SEC period end (quarters preferred when present). segment_facts holds dimensional segment rows when the API includes them. segment_reporting explains where to read segment tables in filings. price_history is sampled daily closes.",
+    "Company context (JSON): object with primary_company (full workspace) and peer_companies (slim snapshots for comparison questions). revenue_series, net_income_series, operating_expenses_series, cost_of_revenue_series are USD per SEC period end. workspace_ai may include mdna_excerpt, risk_factors_excerpt, and governance_excerpt (plain filing text) plus segment_bullets, section_summaries, etc. price_history is sampled daily closes.",
     ctx,
   ].join("\n");
 }

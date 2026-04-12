@@ -19,44 +19,70 @@ function newId(): string {
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const STARTER_QUESTIONS = [
+  "What should I read first to understand the last quarter?",
+  "How did revenue and margins trend over the last year?",
+  "Which risks in the 10-K look new or expanded versus prior years?",
+];
+
 export function TickerChatPanel({ data }: { data: CompanyPayload }) {
-  const [q, setQ] = useState("What should I read first to understand the last quarter?");
+  const [q, setQ] = useState("");
   const [turns, setTurns] = useState<TickerChatTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAfterTurnId = useRef<string | null>(null);
 
   useEffect(() => {
     setTurns(loadChat(data.ticker));
   }, [data.ticker]);
 
+  useEffect(() => {
+    if (loading) return;
+    const id = scrollAfterTurnId.current;
+    if (!id) return;
+    scrollAfterTurnId.current = null;
+    requestAnimationFrame(() => {
+      document.getElementById(`ticker-chat-turn-${id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+        inline: "nearest",
+      });
+    });
+  }, [loading, turns]);
+
   const disabled = useMemo(() => loading || !q.trim(), [loading, q]);
 
-  async function submit() {
+  const lastFollowUps = useMemo(() => {
+    if (turns.length === 0) return [] as string[];
+    return turns[turns.length - 1]!.response.unanswered_questions ?? [];
+  }, [turns]);
+
+  async function submit(questionOverride?: string) {
+    const question = (questionOverride ?? q).trim();
+    if (!question) return;
     setLoading(true);
     setErr(null);
     try {
       const res = await askTickerChat({
         ticker: data.ticker,
-        question: q.trim(),
+        question,
         companyContext: data,
       });
       const turn: TickerChatTurn = {
         id: newId(),
-        question: q.trim(),
+        question,
         response: res,
         at: new Date().toISOString(),
       };
+      scrollAfterTurnId.current = turn.id;
       setTurns((prev) => {
         const next = [...prev, turn];
         saveChat(data.ticker, next);
         return next;
       });
       setQ("");
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-      });
     } catch (e) {
+      scrollAfterTurnId.current = null;
       setErr(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setLoading(false);
@@ -78,8 +104,8 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-950">TickerChat</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Grounded Q&amp;A over the structured workspace context. No buy/sell guidance. History is kept
-            for this tab until you clear it (included in PDF export). Shift+Enter for a new line; Enter sends.
+            Grounded Q&amp;A over the structured workspace context. No buy/sell guidance. History is kept for this tab
+            until you clear it (included in PDF export).
           </p>
         </div>
         {turns.length ? (
@@ -94,16 +120,51 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
         ) : null}
       </div>
 
-      <div className="mt-4 max-h-[min(520px,70vh)] space-y-4 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
+      <div className="mt-4 space-y-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
         {turns.length === 0 ? (
-          <p className="text-sm text-slate-500">No messages yet. Ask a question below.</p>
+          <p className="text-sm text-slate-500">No messages yet. Pick a starter question or type your own below.</p>
         ) : (
           turns.map((t) => <TurnBlock key={t.id} turn={t} />)
         )}
-        <div ref={bottomRef} />
       </div>
 
       {err ? <p className="mt-3 text-sm text-red-600">{err}</p> : null}
+
+      {turns.length === 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {STARTER_QUESTIONS.map((sq) => (
+            <button
+              key={sq}
+              type="button"
+              disabled={loading}
+              onClick={() => {
+                setQ(sq);
+                void submit(sq);
+              }}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-slate-700 shadow-sm hover:border-brand-300 hover:bg-brand-50 disabled:opacity-50"
+            >
+              {sq}
+            </button>
+          ))}
+        </div>
+      ) : lastFollowUps.length > 0 ? (
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Suggested follow-ups</p>
+          <div className="flex flex-wrap gap-2">
+            {lastFollowUps.map((fq) => (
+              <button
+                key={fq}
+                type="button"
+                disabled={loading}
+                onClick={() => void submit(fq)}
+                className="rounded-full border border-brand-200 bg-brand-50/80 px-3 py-1.5 text-left text-xs font-medium text-brand-900 shadow-sm hover:border-brand-400 hover:bg-brand-100 disabled:opacity-50"
+              >
+                {fq}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
         <textarea
@@ -112,22 +173,28 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (!disabled) void submit();
+              if (!loading && q.trim()) void submit();
             }
           }}
           rows={3}
-          placeholder="Ask about filings, risks, or where to read next…"
+          placeholder="Ask about filings, risks, segments, or where to read next…"
           className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm outline-none ring-brand-200 focus:border-brand-400 focus:ring-4"
         />
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => void submit()}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-        >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          Ask
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void submit()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Ask
+          </button>
+          <p className="text-xs text-slate-500 sm:text-right">
+            <span className="font-medium text-slate-600">Shift+Enter</span> new line ·{" "}
+            <span className="font-medium text-slate-600">Enter</span> sends
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -136,7 +203,10 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
 function TurnBlock({ turn }: { turn: TickerChatTurn }) {
   const out = turn.response;
   return (
-    <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div
+      id={`ticker-chat-turn-${turn.id}`}
+      className="scroll-mt-24 space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         You · {formatDate(turn.at)}
       </p>
@@ -171,11 +241,13 @@ function TurnBlock({ turn }: { turn: TickerChatTurn }) {
         {out.unanswered_questions.length ? (
           <div className="mt-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Suggested follow-ups
+              Suggested follow-ups (copy)
             </p>
             <ul className="mt-2 space-y-2 text-sm text-slate-700">
-              {out.unanswered_questions.map((b) => (
-                <li key={b}>• {b}</li>
+              {out.unanswered_questions.map((uq) => (
+                <li key={uq} className="select-text">
+                  • {uq}
+                </li>
               ))}
             </ul>
           </div>

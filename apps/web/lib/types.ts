@@ -90,6 +90,22 @@ export interface SegmentReportingContext {
   filed_at?: string | null;
 }
 
+/** Claude-generated filing summaries (client merges after /api/workspace-enrich). */
+export interface WorkspaceAiEnrichment {
+  segment_bullets: string[];
+  section_summaries: Partial<
+    Record<"business" | "risk_factors" | "mdna" | "segments" | "governance", string>
+  >;
+  governance_bullets: string[];
+  deeper_reading: string[];
+  /** Plain-text MD&A region from the latest 10-Q/10-K (server-extracted; for TickerChat + UI). */
+  mdna_excerpt?: string;
+  /** Plain-text Item 1A / risk factors region when found. */
+  risk_factors_excerpt?: string;
+  /** Plain-text proxy region (executive comp / governance) from DEF 14A when found. */
+  governance_excerpt?: string;
+}
+
 export interface CompanyPayload {
   ticker: string;
   name: string;
@@ -116,6 +132,8 @@ export interface CompanyPayload {
   segment_facts?: SegmentFactPoint[];
   /** Where to read segment tables when bulk facts omit them */
   segment_reporting?: SegmentReportingContext;
+  /** Optional summaries from latest SEC filing text (see /api/workspace-enrich). */
+  workspace_ai?: WorkspaceAiEnrichment;
   governance: GovernanceSummary;
   meta: {
     facts_available: boolean;

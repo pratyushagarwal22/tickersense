@@ -1,3 +1,4 @@
+import { formatExchangeLabel } from "@/lib/format";
 import type { CompanyPayload } from "@/lib/types";
 import { Building2 } from "lucide-react";
 
@@ -19,7 +20,7 @@ export function CompanyHeader({ data }: { data: CompanyPayload }) {
             </span>
           </div>
           <p className="text-sm text-slate-600">
-            {data.exchange ? `${data.exchange}` : "Exchange unknown"}
+            {data.exchange ? formatExchangeLabel(data.exchange) : "Exchange unknown"}
             {data.cik ? <span className="text-slate-400"> · CIK {data.cik}</span> : null}
             {data.meta.mock ? (
               <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900 ring-1 ring-amber-100">

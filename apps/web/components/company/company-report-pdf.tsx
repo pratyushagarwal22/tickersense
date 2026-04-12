@@ -5,9 +5,11 @@ import {
   periodEndToMs,
   type FinancialTrendRow,
 } from "@/lib/financial-trends";
-import { formatCompactUsd, formatDate } from "@/lib/format";
+import { formatCompactUsd, formatDate, formatExchangeLabel } from "@/lib/format";
 import type { CompanyPayload, FilingItem } from "@/lib/types";
 import { Document, Link, Page, Polyline, StyleSheet, Svg, Text, View } from "@react-pdf/renderer";
+
+const SECTION_AI_KEYS = ["business", "risk_factors", "mdna", "segments", "governance"] as const;
 
 const PDF_TREND_YEARS = 5;
 
@@ -28,7 +30,11 @@ function FinancialTrendsPdfChart({ data }: { data: CompanyPayload }) {
   }
   withT.sort((a, b) => a.t - b.t);
   if (withT.length < 2) {
-    return <Text style={styles.emptyState}>Not enough SEC history to plot trends.</Text>;
+    return (
+      <View wrap={false}>
+        <Text style={styles.emptyState}>Not enough SEC history to plot trends.</Text>
+      </View>
+    );
   }
   const ts = withT.map((r) => r.t);
   const tMin = Math.min(...ts);
@@ -41,7 +47,11 @@ function FinancialTrendsPdfChart({ data }: { data: CompanyPayload }) {
     if (r.opex != null) vals.push(r.opex);
   }
   if (!vals.length) {
-    return <Text style={styles.emptyState}>No numeric series in range.</Text>;
+    return (
+      <View wrap={false}>
+        <Text style={styles.emptyState}>No numeric series in range.</Text>
+      </View>
+    );
   }
   const rawMin = Math.min(...vals);
   const rawMax = Math.max(...vals);
@@ -74,12 +84,16 @@ function FinancialTrendsPdfChart({ data }: { data: CompanyPayload }) {
       .sort((a, b) => a.t - b.t);
     if (pts.length >= 2) seriesList.push({ color, label, points: pts });
   };
-  pushSeries(C.teal, "Revenue", (r) => r.revenue);
-  pushSeries(C.brand600, "Net income", (r) => r.netIncome);
+  pushSeries("#2563eb", "Revenue", (r) => r.revenue);
+  pushSeries("#16a34a", "Net income", (r) => r.netIncome);
   pushSeries("#ea580c", "Operating expenses", (r) => r.opex);
 
   if (!seriesList.length) {
-    return <Text style={styles.emptyState}>Not enough points to draw trend lines.</Text>;
+    return (
+      <View wrap={false}>
+        <Text style={styles.emptyState}>Not enough points to draw trend lines.</Text>
+      </View>
+    );
   }
 
   const uniquePeriods = Array.from(new Set(withT.map((r) => r.period_end))).sort();
@@ -97,7 +111,7 @@ function FinancialTrendsPdfChart({ data }: { data: CompanyPayload }) {
   })();
 
   return (
-    <View style={{ marginTop: 6 }}>
+    <View wrap={false} style={{ marginTop: 6 }}>
       <Text style={{ fontSize: 8, color: C.slate700, marginBottom: 4 }}>
         Date range: {formatDate(periodStart)} — {formatDate(periodEnd)} ({uniquePeriods.length} period
         {uniquePeriods.length === 1 ? "" : "s"})
@@ -217,7 +231,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     borderRadius: 12,
     padding: 14,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   cardTitle: { fontSize: 12, fontWeight: "bold", color: C.slate900, marginBottom: 4 },
   cardDesc: { fontSize: 8, color: C.slate600, marginBottom: 10, lineHeight: 1.45 },
@@ -362,6 +376,71 @@ function FilingActions({ f }: { f: FilingItem }) {
         <LinkButton href={f.filing_index_url} label="Filing index" variant="ghost" />
       ) : null}
     </View>
+  );
+}
+
+function ChatTurnPdfContent({ t }: { t: TickerChatTurn }) {
+  return (
+    <>
+      <Text style={styles.sectionLabel}>You · {formatDate(t.at)}</Text>
+      <View style={styles.chatUser}>
+        <Text style={styles.block}>{t.question}</Text>
+      </View>
+      <Text style={[styles.sectionLabel, { marginTop: 10 }]}>TickerChat</Text>
+      <View style={styles.chatAsst}>
+        <Text style={styles.block}>{t.response.answer}</Text>
+        {t.response.bullet_points.length ? (
+          <>
+            <Text style={[styles.sectionLabel, { marginTop: 6 }]}>Highlights</Text>
+            {t.response.bullet_points.map((b, idx) => (
+              <Text key={`${idx}-${b.slice(0, 32)}`} style={styles.block}>
+                • {b}
+              </Text>
+            ))}
+          </>
+        ) : null}
+        {t.response.supporting_sources.length ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
+            {t.response.supporting_sources.map((s) =>
+              s.url ? (
+                <Link key={t.id + s.label + s.url} src={s.url} style={btn.sourcePill}>
+                  <Text style={btn.sourcePillText}>
+                    {s.label}
+                    {s.form ? ` · ${s.form}` : ""}
+                  </Text>
+                </Link>
+              ) : (
+                <View key={s.label} style={btn.sourcePill}>
+                  <Text style={[btn.sourcePillText, { color: C.slate600 }]}>
+                    {s.label}
+                    {s.form ? ` · ${s.form}` : ""}
+                  </Text>
+                </View>
+              ),
+            )}
+          </View>
+        ) : null}
+        {t.response.unanswered_questions.length ? (
+          <>
+            <Text style={[styles.sectionLabel, { marginTop: 8 }]}>Suggested follow-ups</Text>
+            {t.response.unanswered_questions.map((uq, idx) => (
+              <Text key={`${t.id}-uq-${idx}`} style={styles.block}>
+                • {uq}
+              </Text>
+            ))}
+          </>
+        ) : null}
+        <Text style={[styles.subtitle, { marginTop: 6, marginBottom: 0 }]}>{t.response.disclaimer}</Text>
+      </View>
+    </>
+  );
+}
+
+function ChatPdfFooter() {
+  return (
+    <Text style={{ fontSize: 7, color: C.slate500, marginTop: 16, textAlign: "center" }}>
+      Research support only. Not investment advice.
+    </Text>
   );
 }
 
@@ -510,7 +589,7 @@ function PriceSparkline({ data }: { data: CompanyPayload }) {
         ).sort((a, b) => a - b);
 
   return (
-    <View style={{ marginTop: 4 }}>
+    <View wrap={false} style={{ marginTop: 4 }}>
       <Text style={{ fontSize: 8, color: C.slate700, marginBottom: 4 }}>
         Date range: {formatDate(firstD)} — {formatDate(lastD)}
         {model.mode === "indexed"
@@ -538,7 +617,7 @@ function PriceSparkline({ data }: { data: CompanyPayload }) {
         <View>
           <Svg width={plotW} height={plotH}>
             {benchPtSegments.map((seg, idx) => (
-              <Polyline key={`bench-${idx}`} points={seg} stroke="#94a3b8" strokeWidth={1.5} fill="none" />
+              <Polyline key={`bench-${idx}`} points={seg} stroke="#64748b" strokeWidth={1.5} fill="none" />
             ))}
             <Polyline points={stockPts} stroke={C.brand600} strokeWidth={1.8} fill="none" />
             <Polyline
@@ -575,7 +654,7 @@ function PriceSparkline({ data }: { data: CompanyPayload }) {
           {data.ticker}
         </Text>
         {model.mode === "indexed" ? (
-          <Text style={{ fontSize: 7, color: "#94a3b8", fontWeight: "bold", marginHorizontal: 10 }}>
+          <Text style={{ fontSize: 7, color: "#64748b", fontWeight: "bold", marginHorizontal: 10 }}>
             {model.benchLabel}
           </Text>
         ) : null}
@@ -612,7 +691,7 @@ export function CompanyReportPdfDocument({
           Generated {formatDate(generatedAtIso)} · {data.meta.mock ? "Demo workspace" : "Live workspace snapshot"}
         </Text>
 
-        <View wrap={false} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Continue on the website</Text>
           <Text style={styles.cardDesc}>
             Same company workspace as in your browser — charts, filings, and TickerChat context.
@@ -622,7 +701,7 @@ export function CompanyReportPdfDocument({
           </Link>
         </View>
 
-        <View wrap={false} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Company</Text>
           <Text style={styles.cardDesc}>Identifiers and listing.</Text>
           <View style={styles.row}>
@@ -632,7 +711,7 @@ export function CompanyReportPdfDocument({
           {data.exchange ? (
             <View style={styles.row}>
               <Text style={styles.labelCol}>Exchange</Text>
-              <Text style={styles.valueCol}>{data.exchange}</Text>
+              <Text style={styles.valueCol}>{formatExchangeLabel(data.exchange)}</Text>
             </View>
           ) : null}
           {data.cik ? (
@@ -679,7 +758,7 @@ export function CompanyReportPdfDocument({
           ))}
         </View>
 
-        <View wrap={false} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Filings timeline</Text>
           <Text style={styles.cardDesc}>
             Latest 10-K, 10-Q, 8-K, and DEF 14A. Tap a button to open the SEC destination (same labels as the site).
@@ -687,9 +766,10 @@ export function CompanyReportPdfDocument({
           {data.filings.map((f) => (
             <View
               key={`${f.form}-${f.accession_number}`}
+              wrap={false}
               style={{
-                marginBottom: 10,
-                padding: 10,
+                marginBottom: 14,
+                padding: 12,
                 backgroundColor: C.slate100,
                 borderRadius: 8,
                 borderWidth: 1,
@@ -709,26 +789,235 @@ export function CompanyReportPdfDocument({
           ))}
         </View>
 
-        <View wrap={false} style={styles.card}>
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Filing excerpts</Text>
-          <Text style={styles.cardDesc}>Anchors from the structured workspace.</Text>
-          {data.filing_sections.map((s) => (
-            <View key={s.id} style={{ marginBottom: 10 }}>
-              <Text style={{ fontWeight: "bold", fontSize: 9, color: C.slate900 }}>{s.label}</Text>
-              <Text style={styles.block}>{s.excerpt}</Text>
-              {s.source_url ? (
-                <View style={{ marginTop: 4 }}>
-                  <LinkButton href={s.source_url} label="Open source" variant="outline" />
+          <Text style={styles.cardDesc}>
+            Anchors from the structured workspace. When filing summaries finished loading before export, AI notes from
+            SEC text appear below—verify figures in the official filing.
+          </Text>
+          {data.filing_sections.map((s) => {
+            const aiKey = SECTION_AI_KEYS.includes(s.id as (typeof SECTION_AI_KEYS)[number])
+              ? (s.id as (typeof SECTION_AI_KEYS)[number])
+              : null;
+            const aiPara = aiKey ? data.workspace_ai?.section_summaries?.[aiKey] : undefined;
+            const segmentExtras =
+              s.id === "segments" && data.workspace_ai?.segment_bullets?.length
+                ? data.workspace_ai.segment_bullets
+                : null;
+            const mdnaPdf =
+              s.id === "mdna" && !aiPara && data.workspace_ai?.mdna_excerpt?.trim()
+                ? data.workspace_ai.mdna_excerpt.trim().slice(0, 4800)
+                : null;
+            const riskPdf =
+              s.id === "risk_factors" && !aiPara && data.workspace_ai?.risk_factors_excerpt?.trim()
+                ? data.workspace_ai.risk_factors_excerpt.trim().slice(0, 4200)
+                : null;
+            const govPdf =
+              s.id === "governance" && !aiPara && data.workspace_ai?.governance_excerpt?.trim()
+                ? data.workspace_ai.governance_excerpt.trim().slice(0, 4200)
+                : null;
+            return (
+              <View key={s.id} wrap={false} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                  <Text style={{ fontWeight: "bold", fontSize: 9, color: C.slate900, marginRight: 6 }}>{s.label}</Text>
+                  {s.form ? (
+                    <View style={[styles.badge, { marginBottom: 0 }]}>
+                      <Text style={styles.badgeText}>{s.form}</Text>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
+                <Text style={[styles.block, { marginBottom: 6 }]}>{s.excerpt}</Text>
+                {aiPara ? (
+                  <View
+                    style={{
+                      marginTop: 6,
+                      marginBottom: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: "#bfdbfe",
+                      backgroundColor: "#eff6ff",
+                    }}
+                  >
+                    <Text style={{ fontSize: 8, fontWeight: "bold", color: C.brand700, marginBottom: 4 }}>Summary</Text>
+                    <Text style={[styles.block, { marginBottom: 0, fontSize: 8.5, lineHeight: 1.5 }]}>{aiPara}</Text>
+                  </View>
+                ) : null}
+                {mdnaPdf ? (
+                  <View
+                    style={{
+                      marginTop: 6,
+                      marginBottom: 8,
+                      padding: 8,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      backgroundColor: "#f8fafc",
+                    }}
+                  >
+                    <Text style={{ fontSize: 8, fontWeight: "bold", color: C.slate800, marginBottom: 3 }}>
+                      MD&A excerpt (filing text)
+                    </Text>
+                    <Text style={[styles.block, { marginBottom: 0, fontSize: 7.5, lineHeight: 1.45 }]}>{mdnaPdf}</Text>
+                  </View>
+                ) : null}
+                {riskPdf ? (
+                  <View
+                    style={{
+                      marginTop: 6,
+                      marginBottom: 8,
+                      padding: 8,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      backgroundColor: "#f8fafc",
+                    }}
+                  >
+                    <Text style={{ fontSize: 8, fontWeight: "bold", color: C.slate800, marginBottom: 3 }}>
+                      Risk factors excerpt (filing text)
+                    </Text>
+                    <Text style={[styles.block, { marginBottom: 0, fontSize: 7.5, lineHeight: 1.45 }]}>{riskPdf}</Text>
+                  </View>
+                ) : null}
+                {govPdf ? (
+                  <View
+                    style={{
+                      marginTop: 6,
+                      marginBottom: 8,
+                      padding: 8,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                      backgroundColor: "#f8fafc",
+                    }}
+                  >
+                    <Text style={{ fontSize: 8, fontWeight: "bold", color: C.slate800, marginBottom: 3 }}>
+                      Proxy excerpt (filing text)
+                    </Text>
+                    <Text style={[styles.block, { marginBottom: 0, fontSize: 7.5, lineHeight: 1.45 }]}>{govPdf}</Text>
+                  </View>
+                ) : null}
+                {segmentExtras
+                  ? segmentExtras.map((b, i) => (
+                      <Text key={`${s.id}-seg-${i}`} style={styles.block}>
+                        • {b}
+                      </Text>
+                    ))
+                  : null}
+                {s.source_url ? (
+                  <View style={{ marginTop: 4 }}>
+                    <LinkButton href={s.source_url} label="Open official filing" variant="outline" />
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+          {data.workspace_ai?.deeper_reading?.length ? (
+            <View
+              wrap={false}
+              style={{
+                marginTop: 6,
+                padding: 10,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: C.border,
+                backgroundColor: C.slate100,
+              }}
+            >
+              <Text style={{ fontSize: 9, fontWeight: "bold", color: C.slate900, marginBottom: 4 }}>
+                What to read next in the full filing
+              </Text>
+              {data.workspace_ai.deeper_reading.map((line, i) => (
+                <Text key={`deep-${i}`} style={styles.block}>
+                  • {line}
+                </Text>
+              ))}
             </View>
-          ))}
+          ) : null}
         </View>
 
         <View wrap={false} style={styles.card}>
+          <Text style={styles.cardTitle}>Governance & Executive Pay</Text>
+          <Text style={styles.cardDesc}>
+            Proxy (DEF 14A) context—who runs the company and how leaders are compensated. Not a scorecard on the stock.
+          </Text>
+          {data.workspace_ai?.section_summaries?.governance ? (
+            <View
+              style={{
+                marginBottom: 8,
+                padding: 8,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: "#bfdbfe",
+                backgroundColor: "#eff6ff",
+              }}
+            >
+              <Text style={{ fontSize: 8, fontWeight: "bold", color: C.brand700, marginBottom: 3 }}>
+                From latest proxy (AI summary)
+              </Text>
+              <Text style={[styles.block, { marginBottom: 0, fontSize: 8.5 }]}>
+                {data.workspace_ai.section_summaries.governance}
+              </Text>
+            </View>
+          ) : data.workspace_ai?.governance_excerpt?.trim() ? (
+            <View
+              style={{
+                marginBottom: 8,
+                padding: 8,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: C.border,
+                backgroundColor: "#f8fafc",
+              }}
+            >
+              <Text style={{ fontSize: 8, fontWeight: "bold", color: C.slate800, marginBottom: 3 }}>
+                From latest proxy (filing excerpt)
+              </Text>
+              <Text style={[styles.block, { marginBottom: 0, fontSize: 7.5, lineHeight: 1.45 }]}>
+                {data.workspace_ai.governance_excerpt.trim().slice(0, 5200)}
+              </Text>
+            </View>
+          ) : null}
+          {(data.workspace_ai?.governance_bullets?.length
+            ? data.workspace_ai.governance_bullets
+            : data.governance.bullets
+          ).map((b, i) => (
+            <Text key={`gov-${i}`} style={styles.block}>
+              • {b}
+            </Text>
+          ))}
+          {data.governance.sources.length ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
+              {data.governance.sources.map((s) =>
+                s.url ? (
+                  <Link key={s.label + s.url} src={s.url} style={btn.sourcePill}>
+                    <Text style={btn.sourcePillText}>
+                      {s.label}
+                      {s.form ? ` · ${s.form}` : ""}
+                    </Text>
+                  </Link>
+                ) : (
+                  <View key={s.label} style={btn.sourcePill}>
+                    <Text style={[btn.sourcePillText, { color: C.slate600 }]}>
+                      {s.label}
+                      {s.form ? ` · ${s.form}` : ""}
+                    </Text>
+                  </View>
+                ),
+              )}
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.cardTitle}>Insights</Text>
+          {data.insights.length === 0 ? (
+            <Text style={[styles.block, { fontStyle: "italic", color: C.slate600 }]}>
+              No insight cards were included in this export snapshot.
+            </Text>
+          ) : null}
           {data.insights.map((i) => (
-            <View key={i.category + i.title} style={{ marginBottom: 10 }}>
+            <View key={i.category + i.title} wrap={false} style={{ marginBottom: 10 }}>
               <Text style={{ fontWeight: "bold", fontSize: 9, color: C.slate900 }}>{i.title}</Text>
               {i.bullets.map((b, idx) => (
                 <Text key={`${idx}-${b.slice(0, 24)}`} style={styles.block}>
@@ -760,72 +1049,31 @@ export function CompanyReportPdfDocument({
           ))}
         </View>
 
-        {chatTurns.length ? (
-          <>
-            <View style={styles.divider} />
-            <Text style={[styles.title, { fontSize: 14 }]}>TickerChat</Text>
-            <Text style={styles.subtitle}>Transcript from this session (included for your records).</Text>
-            {chatTurns.map((t) => (
-              <View key={t.id} style={{ marginBottom: 12 }}>
-                <Text style={styles.sectionLabel}>You · {formatDate(t.at)}</Text>
-                <View style={styles.chatUser}>
-                  <Text style={styles.block}>{t.question}</Text>
-                </View>
-                <Text style={styles.sectionLabel}>TickerChat</Text>
-                <View style={styles.chatAsst}>
-                  <Text style={styles.block}>{t.response.answer}</Text>
-                  {t.response.bullet_points.length ? (
-                    <>
-                      <Text style={[styles.sectionLabel, { marginTop: 6 }]}>Highlights</Text>
-                      {t.response.bullet_points.map((b, idx) => (
-                        <Text key={`${idx}-${b.slice(0, 32)}`} style={styles.block}>
-                          • {b}
-                        </Text>
-                      ))}
-                    </>
-                  ) : null}
-                  {t.response.supporting_sources.length ? (
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
-                      {t.response.supporting_sources.map((s) =>
-                        s.url ? (
-                          <Link key={t.id + s.label + s.url} src={s.url} style={btn.sourcePill}>
-                            <Text style={btn.sourcePillText}>
-                              {s.label}
-                              {s.form ? ` · ${s.form}` : ""}
-                            </Text>
-                          </Link>
-                        ) : (
-                          <View key={s.label} style={btn.sourcePill}>
-                            <Text style={[btn.sourcePillText, { color: C.slate600 }]}>
-                              {s.label}
-                              {s.form ? ` · ${s.form}` : ""}
-                            </Text>
-                          </View>
-                        ),
-                      )}
-                    </View>
-                  ) : null}
-                  {t.response.unanswered_questions.length ? (
-                    <>
-                      <Text style={[styles.sectionLabel, { marginTop: 8 }]}>Suggested follow-ups</Text>
-                      {t.response.unanswered_questions.map((uq, idx) => (
-                        <Text key={`${t.id}-uq-${idx}`} style={styles.block}>
-                          • {uq}
-                        </Text>
-                      ))}
-                    </>
-                  ) : null}
-                  <Text style={[styles.subtitle, { marginTop: 6, marginBottom: 0 }]}>{t.response.disclaimer}</Text>
-                </View>
-              </View>
-            ))}
-          </>
-        ) : null}
-
         <Text style={{ fontSize: 7, color: C.slate500, marginTop: 12, textAlign: "center" }}>
           Research support only. Not investment advice. In PDF viewers, use pointer over buttons to follow links.
         </Text>
       </Page>
+
+      {chatTurns.length ? (
+        <>
+          <Page size="A4" style={styles.page} break wrap>
+            <Text style={styles.wordmark}>TICKERSENSE</Text>
+            <Text style={[styles.title, { fontSize: 16 }]}>TickerChat</Text>
+            <Text style={[styles.subtitle, { marginBottom: 10 }]}>
+              Transcript from this session. First exchange below; additional exchanges follow on later pages when needed.
+            </Text>
+            <ChatTurnPdfContent t={chatTurns[0]!} />
+            <ChatPdfFooter />
+          </Page>
+          {chatTurns.slice(1).map((t) => (
+            <Page key={t.id} size="A4" style={styles.page} wrap>
+              <Text style={styles.wordmark}>TICKERSENSE</Text>
+              <ChatTurnPdfContent t={t} />
+              <ChatPdfFooter />
+            </Page>
+          ))}
+        </>
+      ) : null}
     </Document>
   );
 }

@@ -12,6 +12,7 @@ export function CompanySearch() {
     if (!t) return;
     const url = `/company/${encodeURIComponent(t)}`;
     window.open(url, "_blank", "noopener,noreferrer");
+    setQ("");
   }
 
   return (

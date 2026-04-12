@@ -157,19 +157,43 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
               }
             />
             <Tooltip
-              formatter={(v, name) => {
-                const n = v != null && v !== "" ? Number(v) : NaN;
-                const nm = String(name);
-                if (nm.includes(benchLabel) || nm === benchLabel) {
-                  return [Number.isFinite(n) ? `${n.toFixed(1)} (idx)` : "—", nm];
-                }
-                if (mode === "indexed") {
-                  return [Number.isFinite(n) ? `${n.toFixed(1)} (idx)` : "—", nm];
-                }
-                return [Number.isFinite(n) ? formatCompactUsd(n) : "—", nm];
+              content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                const row = payload[0]?.payload as IdxRow | undefined;
+                if (!row) return null;
+                const dateStr = formatDate(String(label));
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+                    <p className="font-semibold text-slate-900">{dateStr}</p>
+                    {mode === "indexed" ? (
+                      <div className="mt-2 space-y-1.5 text-slate-700">
+                        <p>
+                          <span className="font-medium text-[#315cff]">{data.ticker}</span>
+                          {": "}
+                          {formatCompactUsd(row.stock)}
+                          <span className="text-slate-500">
+                            {" "}
+                            · indexed {row.stockIdx.toFixed(1)} (vs start = 100)
+                          </span>
+                        </p>
+                        {row.bench != null && row.benchIdx != null ? (
+                          <p>
+                            <span className="font-medium text-slate-600">{benchLabel}</span>
+                            {": "}
+                            {formatCompactUsd(row.bench)}
+                            <span className="text-slate-500">
+                              {" "}
+                              · indexed {row.benchIdx.toFixed(1)} (vs start = 100)
+                            </span>
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-slate-700">{formatCompactUsd(row.stock)}</p>
+                    )}
+                  </div>
+                );
               }}
-              labelFormatter={(label) => String(label)}
-              labelClassName="text-xs"
             />
             <Legend
               align="center"
@@ -191,7 +215,7 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
                 type="monotone"
                 dataKey="benchIdx"
                 name={benchLabel}
-                stroke="#94a3b8"
+                stroke="#64748b"
                 strokeWidth={2}
                 dot={false}
                 connectNulls={false}

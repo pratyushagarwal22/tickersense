@@ -158,6 +158,14 @@ export function getMockCompany(ticker: string): CompanyPayload {
         source_url: filings.find((f) => f.form === "10-K")?.filing_url,
       },
       {
+        id: "governance",
+        label: "Governance / executive compensation",
+        form: "DEF 14A",
+        excerpt:
+          "Placeholder: DEF 14A is the primary source for pay design, equity incentives, and board structure.",
+        source_url: filings.find((f) => f.form === "DEF 14A")?.filing_url,
+      },
+      {
         id: "mdna",
         label: "MD&A",
         form: "10-Q",
@@ -166,16 +174,18 @@ export function getMockCompany(ticker: string): CompanyPayload {
         source_url: filings.find((f) => f.form === "10-Q")?.filing_url,
       },
       {
-        id: "governance",
-        label: "Governance / executive compensation",
-        form: "DEF 14A",
+        id: "segments",
+        label: "Segment results",
+        form: "10-Q",
         excerpt:
-          "Placeholder: DEF 14A is the primary source for pay design, equity incentives, and board structure.",
-        source_url: filings.find((f) => f.form === "DEF 14A")?.filing_url,
+          "Placeholder: segment tables and footnotes carry dimensional revenue and operating income—verify in the filing.",
+        source_url: filings.find((f) => f.form === "10-Q")?.filing_url,
       },
     ],
     financials: [
       { label: "Revenue (demo)", value: "—", period: "TTM", source: "SEC company facts (when available)" },
+      { label: "Gross profit (demo)", value: "—", period: "TTM", source: "SEC company facts (when available)" },
+      { label: "Operating income (demo)", value: "—", period: "TTM", source: "SEC company facts (when available)" },
       { label: "Net income (demo)", value: "—", period: "TTM", source: "SEC company facts (when available)" },
       { label: "EPS (diluted) (demo)", value: "—", period: "MRQ", source: "SEC company facts (when available)" },
       { label: "Total assets (demo)", value: "—", period: "MRQ", source: "SEC company facts (when available)" },
