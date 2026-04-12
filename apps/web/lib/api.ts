@@ -16,8 +16,12 @@ export async function askCopilot(body: AskRequestBody): Promise<AskResponseBody>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  const data = (await res.json()) as AskResponseBody & {
+    error?: string;
+    detail?: string;
+  };
   if (!res.ok) {
-    throw new Error(`Ask failed (${res.status})`);
+    throw new Error(data.detail || data.error || `Ask failed (${res.status})`);
   }
-  return (await res.json()) as AskResponseBody;
+  return data;
 }

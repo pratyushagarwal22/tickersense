@@ -10,27 +10,34 @@ export function buildAskSystemPrompt(): string {
   ].join(" ");
 }
 
+const CONTEXT_CHAR_BUDGET = 16_000;
+
 export function buildAskUserPrompt(input: {
   ticker: string;
   question: string;
   companyContext?: CompanyPayload | null;
 }): string {
-  const ctx = input.companyContext
-    ? JSON.stringify(
-        {
-          ticker: input.companyContext.ticker,
-          name: input.companyContext.name,
-          insights: input.companyContext.insights,
-          filings: input.companyContext.filings,
-          filing_sections: input.companyContext.filing_sections,
-          financials: input.companyContext.financials,
-          technicals: input.companyContext.technicals,
-          governance: input.companyContext.governance,
-        },
-        null,
-        2,
-      )
-    : "No structured company context was provided.";
+  let ctx = "No structured company context was provided.";
+  if (input.companyContext) {
+    const raw = JSON.stringify(
+      {
+        ticker: input.companyContext.ticker,
+        name: input.companyContext.name,
+        insights: input.companyContext.insights,
+        filings: input.companyContext.filings,
+        filing_sections: input.companyContext.filing_sections,
+        financials: input.companyContext.financials,
+        technicals: input.companyContext.technicals,
+        governance: input.companyContext.governance,
+      },
+      null,
+      2,
+    );
+    ctx =
+      raw.length > CONTEXT_CHAR_BUDGET
+        ? `${raw.slice(0, CONTEXT_CHAR_BUDGET)}\n…[context truncated for speed]`
+        : raw;
+  }
 
   return [
     `Ticker: ${input.ticker}`,

@@ -13,6 +13,14 @@ const BodySchema = z.object({
 });
 
 function tryParseJsonObject(text: string): Record<string, unknown> | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1].trim()) as Record<string, unknown>;
+    } catch {
+      /* fall through */
+    }
+  }
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) return null;
@@ -21,6 +29,13 @@ function tryParseJsonObject(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function envTrim(name: string): string | undefined {
+  const v = process.env[name];
+  if (v == null) return undefined;
+  const t = v.trim();
+  return t.length ? t : undefined;
 }
 
 function normalizeAskResponse(parsed: Record<string, unknown>, ticker: string): AskResponseBody {
@@ -57,12 +72,26 @@ function normalizeAskResponse(parsed: Record<string, unknown>, ticker: string): 
   };
 }
 
+const JSON_OUTPUT_SUFFIX =
+  "\n\nReturn ONLY one JSON object (no text before or after) with keys: answer, bullet_points, supporting_sources, unanswered_questions, disclaimer. " +
+  "supporting_sources must be an array of objects {label, url?, form?}.";
+
+async function readApiError(res: Response): Promise<string> {
+  const t = await res.text();
+  try {
+    const j = JSON.parse(t) as { error?: { message?: string } };
+    return j.error?.message ?? t.slice(0, 400);
+  } catch {
+    return t.slice(0, 400);
+  }
+}
+
 async function callOpenAI(
   system: string,
   user: string,
   ticker: string,
 ): Promise<AskResponseBody> {
-  const key = process.env.OPENAI_API_KEY;
+  const key = envTrim("OPENAI_API_KEY");
   if (!key) throw new Error("missing OPENAI_API_KEY");
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -78,18 +107,16 @@ async function callOpenAI(
         { role: "system", content: system },
         {
           role: "user",
-          content:
-            user +
-            "\n\nReturn ONLY valid JSON with keys: answer, bullet_points, supporting_sources, unanswered_questions, disclaimer.\n" +
-            "supporting_sources items should be objects: {label, url?, form?}.",
+          content: user + JSON_OUTPUT_SUFFIX,
         },
       ],
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(25_000),
   });
 
   if (!res.ok) {
-    throw new Error(`openai ${res.status}`);
+    const detail = await readApiError(res);
+    throw new Error(`openai ${res.status}: ${detail}`);
   }
 
   const json = (await res.json()) as {
@@ -106,8 +133,11 @@ async function callAnthropic(
   user: string,
   ticker: string,
 ): Promise<AskResponseBody> {
-  const key = process.env.ANTHROPIC_API_KEY;
+  const key = envTrim("ANTHROPIC_API_KEY");
   if (!key) throw new Error("missing ANTHROPIC_API_KEY");
+
+  const model =
+    envTrim("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -117,20 +147,27 @@ async function callAnthropic(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-3-5-haiku-20241022",
-      max_tokens: 1200,
+      model,
+      max_tokens: 700,
       temperature: 0.2,
-      system,
-      messages: [{ role: "user", content: user }],
+      system: system + " Output must be JSON only as specified in the user message.",
+      messages: [{ role: "user", content: user + JSON_OUTPUT_SUFFIX }],
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(25_000),
   });
 
-  if (!res.ok) throw new Error(`anthropic ${res.status}`);
+  if (!res.ok) {
+    const detail = await readApiError(res);
+    throw new Error(`anthropic ${res.status}: ${detail}`);
+  }
   const json = (await res.json()) as { content?: Array<{ text?: string }> };
   const text = json.content?.map((c) => c.text).join("\n") ?? "";
   const parsed = tryParseJsonObject(text);
-  if (!parsed) throw new Error("unparseable model output");
+  if (!parsed) {
+    throw new Error(
+      `unparseable model output (first 200 chars): ${text.slice(0, 200).replace(/\s+/g, " ")}`,
+    );
+  }
   return normalizeAskResponse(parsed, ticker);
 }
 
@@ -145,18 +182,35 @@ export async function POST(req: Request) {
   const system = buildAskSystemPrompt();
   const user = buildAskUserPrompt({ ticker, question, companyContext });
 
-  try {
-    if (process.env.OPENAI_API_KEY) {
-      const out = await callOpenAI(system, user, ticker);
-      return NextResponse.json({ ...out, disclaimer: out.disclaimer || "Research support only. Not investment advice." });
-    }
-    if (process.env.ANTHROPIC_API_KEY) {
-      const out = await callAnthropic(system, user, ticker);
-      return NextResponse.json({ ...out, disclaimer: out.disclaimer || "Research support only. Not investment advice." });
-    }
-  } catch {
-    // fall through to mock
+  const openai = envTrim("OPENAI_API_KEY");
+  const anthropic = envTrim("ANTHROPIC_API_KEY");
+
+  if (!openai && !anthropic) {
+    return NextResponse.json(getMockAskResponse(ticker, question));
   }
 
-  return NextResponse.json(getMockAskResponse(ticker, question));
+  try {
+    if (openai) {
+      const out = await callOpenAI(system, user, ticker);
+      return NextResponse.json({
+        ...out,
+        disclaimer: out.disclaimer || "Research support only. Not investment advice.",
+      });
+    }
+    const out = await callAnthropic(system, user, ticker);
+    return NextResponse.json({
+      ...out,
+      disclaimer: out.disclaimer || "Research support only. Not investment advice.",
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[api/ask] LLM error:", msg);
+    return NextResponse.json(
+      {
+        error: "Ask Copilot could not get a response from the language model.",
+        detail: msg,
+      },
+      { status: 502 },
+    );
+  }
 }

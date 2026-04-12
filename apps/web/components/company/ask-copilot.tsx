@@ -25,6 +25,7 @@ export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
       });
       setOut(res);
     } catch (e) {
+      setOut(null);
       setErr(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setLoading(false);
