@@ -757,7 +757,9 @@ export function CompanyReportPdfDocument({
             </View>
           ))}
         </View>
+      </Page>
 
+      <Page size="A4" style={styles.page} break wrap>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Filings timeline</Text>
           <Text style={styles.cardDesc}>
@@ -788,7 +790,9 @@ export function CompanyReportPdfDocument({
             </View>
           ))}
         </View>
+      </Page>
 
+      <Page size="A4" style={styles.page} break wrap>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Filing excerpts</Text>
           <Text style={styles.cardDesc}>
@@ -935,7 +939,9 @@ export function CompanyReportPdfDocument({
             </View>
           ) : null}
         </View>
+      </Page>
 
+      <Page size="A4" style={styles.page} break wrap>
         <View wrap={false} style={styles.card}>
           <Text style={styles.cardTitle}>Governance & Executive Pay</Text>
           <Text style={styles.cardDesc}>
@@ -1008,8 +1014,10 @@ export function CompanyReportPdfDocument({
             </View>
           ) : null}
         </View>
+      </Page>
 
-        <View style={styles.card}>
+      <Page size="A4" style={styles.page} break wrap>
+        <View wrap={false} style={styles.card}>
           <Text style={styles.cardTitle}>Insights</Text>
           {data.insights.length === 0 ? (
             <Text style={[styles.block, { fontStyle: "italic", color: C.slate600 }]}>

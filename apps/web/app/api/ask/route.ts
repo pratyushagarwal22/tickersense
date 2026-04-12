@@ -1,9 +1,11 @@
+import { buildAskFilingSupplement } from "@/lib/ask-filing-supplement";
 import { fetchAnthropicMessages } from "@/lib/anthropic-fetch";
 import { buildAskSystemPrompt, buildAskUserPrompt } from "@/lib/prompts";
 import { loadCompanyFromIngestion } from "@/lib/ingestion-client";
 import { getMockAskResponse } from "@/lib/mock-data";
 import { inferPeerTickers } from "@/lib/peer-tickers";
-import type { AskResponseBody, CompanyPayload } from "@/lib/types";
+import { sanitizeTickerChatResponse } from "@/lib/ticker-chat-sanitize";
+import type { AskResponseBody, CompanyPayload, WorkspaceAiEnrichment } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -192,6 +194,44 @@ async function callAnthropic(
   return normalizeAskResponse(parsed, ticker);
 }
 
+function mergeWorkspaceAi(
+  fromApi: WorkspaceAiEnrichment | undefined,
+  fromClient: WorkspaceAiEnrichment | undefined,
+): WorkspaceAiEnrichment | undefined {
+  if (!fromClient) return fromApi;
+  if (!fromApi) return fromClient;
+  return {
+    segment_bullets: fromClient.segment_bullets?.length ? fromClient.segment_bullets : fromApi.segment_bullets ?? [],
+    governance_bullets: fromClient.governance_bullets?.length
+      ? fromClient.governance_bullets
+      : fromApi.governance_bullets ?? [],
+    deeper_reading: fromClient.deeper_reading?.length ? fromClient.deeper_reading : fromApi.deeper_reading ?? [],
+    section_summaries: { ...fromApi.section_summaries, ...fromClient.section_summaries },
+    mdna_excerpt: fromClient.mdna_excerpt || fromApi.mdna_excerpt,
+    risk_factors_excerpt: fromClient.risk_factors_excerpt || fromApi.risk_factors_excerpt,
+    governance_excerpt: fromClient.governance_excerpt || fromApi.governance_excerpt,
+  };
+}
+
+async function resolveCompanyForAsk(
+  ticker: string,
+  clientCtx: CompanyPayload | null | undefined,
+): Promise<CompanyPayload | null> {
+  let fromApi: CompanyPayload | null = null;
+  try {
+    fromApi = await loadCompanyFromIngestion(ticker);
+  } catch {
+    fromApi = null;
+  }
+  if (!fromApi && clientCtx) return clientCtx;
+  if (!fromApi) return null;
+  if (!clientCtx?.workspace_ai) return fromApi;
+  return {
+    ...fromApi,
+    workspace_ai: mergeWorkspaceAi(fromApi.workspace_ai, clientCtx.workspace_ai),
+  };
+}
+
 export async function POST(req: Request) {
   const json = await req.json().catch(() => null);
   const parsedBody = BodySchema.safeParse(json);
@@ -201,6 +241,8 @@ export async function POST(req: Request) {
 
   const { ticker, question, companyContext } = parsedBody.data;
   const system = buildAskSystemPrompt();
+
+  const company = await resolveCompanyForAsk(ticker, companyContext as CompanyPayload | null | undefined);
 
   const peerTickers = inferPeerTickers(question, ticker, 2);
   const peerContexts: CompanyPayload[] = [];
@@ -215,33 +257,46 @@ export async function POST(req: Request) {
     }
   }
 
+  const questionSupplement = company ? await buildAskFilingSupplement(company, question) : "";
+  const contextCharBudget =
+    questionSupplement.length > 2500 ? 92_000 : questionSupplement.length > 800 ? 102_000 : 120_000;
+
   const user = buildAskUserPrompt({
     ticker,
     question,
-    companyContext: companyContext as CompanyPayload | null | undefined,
+    companyContext: company ?? (companyContext as CompanyPayload | null | undefined) ?? null,
     peerContexts,
+    questionSupplement: questionSupplement || undefined,
+    contextCharBudget,
   });
 
   const openai = envTrim("OPENAI_API_KEY");
   const anthropic = envTrim("ANTHROPIC_API_KEY");
 
   if (!openai && !anthropic) {
-    return NextResponse.json(getMockAskResponse(ticker, question));
+    return NextResponse.json(
+      sanitizeTickerChatResponse({
+        ...getMockAskResponse(ticker, question),
+        disclaimer: "Research support only. Not investment advice.",
+      }),
+    );
   }
 
   try {
     if (openai) {
       const out = await callOpenAI(system, user, ticker);
-      return NextResponse.json({
+      const cleaned = sanitizeTickerChatResponse({
         ...out,
         disclaimer: out.disclaimer || "Research support only. Not investment advice.",
       });
+      return NextResponse.json(cleaned);
     }
     const out = await callAnthropic(system, user, ticker);
-    return NextResponse.json({
+    const cleaned = sanitizeTickerChatResponse({
       ...out,
       disclaimer: out.disclaimer || "Research support only. Not investment advice.",
     });
+    return NextResponse.json(cleaned);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[api/ask] LLM error:", msg);

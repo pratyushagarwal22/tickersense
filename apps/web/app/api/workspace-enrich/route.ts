@@ -6,6 +6,7 @@ import {
   looksLikeTableOfContents,
 } from "@/lib/filing-text-extract";
 import { loadCompanyFromIngestion } from "@/lib/ingestion-client";
+import { fetchFilingPlainText } from "@/lib/sec-filing-plain-text";
 import type { CompanyPayload, WorkspaceAiEnrichment } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -28,40 +29,6 @@ function envTrim(name: string): string | undefined {
   if (v == null) return undefined;
   const t = v.trim();
   return t.length ? t : undefined;
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isSecArchivesUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return u.hostname === "www.sec.gov" && u.pathname.startsWith("/Archives/edgar/data/");
-  } catch {
-    return false;
-  }
-}
-
-async function fetchFilingPlainText(url: string | undefined, maxChars: number): Promise<string> {
-  if (!url || !isSecArchivesUrl(url)) return "";
-  const ua =
-    envTrim("SEC_USER_AGENT") ??
-    envTrim("EDGAR_USER_AGENT") ??
-    "TickerSense/1.0 (research tool; contact: support@example.com)";
-  const res = await fetch(url, {
-    headers: { "user-agent": ua, accept: "text/html,*/*" },
-    signal: AbortSignal.timeout(35_000),
-  });
-  if (!res.ok) return "";
-  const html = await res.text();
-  const text = stripHtml(html);
-  return text.length <= maxChars ? text : text.slice(0, maxChars);
 }
 
 function tryParseJsonObject(text: string): Record<string, unknown> | null {

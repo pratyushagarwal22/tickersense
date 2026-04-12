@@ -40,7 +40,7 @@ function sliceFromMatch(text: string, re: RegExp, maxLen: number): string {
   return text.slice(start, start + maxLen).trim();
 }
 
-function wordCount(s: string): number {
+export function wordCount(s: string): number {
   const t = s.replace(/\s+/g, " ").trim();
   if (!t) return 0;
   return t.split(" ").length;
@@ -62,9 +62,23 @@ export function looksLikeTableOfContents(slice: string): boolean {
   return false;
 }
 
-function offsetsFor(text: string): number[] {
-  if (text.length < 22_000) return [0];
-  return [0, Math.floor(text.length * 0.05), Math.floor(text.length * 0.1)];
+function offsetsFor(text: string, deep: boolean): number[] {
+  const len = text.length;
+  if (!deep) {
+    if (len < 22_000) return [0];
+    return [0, Math.floor(len * 0.05), Math.floor(len * 0.1)];
+  }
+  if (len < 28_000) return [0, Math.floor(len * 0.08)];
+  if (len < 95_000) return [0, Math.floor(len * 0.08), Math.floor(len * 0.12), Math.floor(len * 0.16)];
+  return [
+    Math.floor(len * 0.1),
+    Math.floor(len * 0.13),
+    Math.floor(len * 0.16),
+    Math.floor(len * 0.2),
+    Math.floor(len * 0.24),
+    Math.floor(len * 0.28),
+    Math.floor(len * 0.32),
+  ];
 }
 
 function findBestSlice(
@@ -72,9 +86,10 @@ function findBestSlice(
   maxLen: number,
   patterns: RegExp[],
   minProseWords: number,
+  deep: boolean,
 ): string {
   let best = "";
-  const offs = offsetsFor(text);
+  const offs = offsetsFor(text, deep);
   for (const off of offs) {
     const space = text.slice(off);
     for (const re of patterns) {
@@ -117,12 +132,43 @@ function findBestSlice(
 
 export function extractMdnaExcerpt(text: string, maxLen: number): string {
   if (!text.trim()) return "";
-  return findBestSlice(text, maxLen, MDNA_PATTERNS, 72);
+  return findBestSlice(text, maxLen, MDNA_PATTERNS, 72, false);
+}
+
+/** Larger 10-K / 10-Q pulls for TickerChat — searches deeper into the document to skip TOC-only matches. */
+export function extractMdnaExcerptDeep(text: string, maxLen: number): string {
+  if (!text.trim()) return "";
+  return findBestSlice(text, maxLen, MDNA_PATTERNS, 55, true);
 }
 
 export function extractRiskFactorsExcerpt(text: string, maxLen: number): string {
   if (!text.trim()) return "";
-  return findBestSlice(text, maxLen, RISK_PATTERNS, 100);
+  return findBestSlice(text, maxLen, RISK_PATTERNS, 100, false);
+}
+
+export function extractRiskFactorsExcerptDeep(text: string, maxLen: number): string {
+  if (!text.trim()) return "";
+  let best = findBestSlice(text, maxLen, RISK_PATTERNS, 70, true);
+  if (wordCount(best) < 220 && text.length > 40_000) {
+    const kw = sliceAroundKeywordWindow(text, /export\s+control|china|licens(?:e|ing)?|geopolitic|restriction\s+on\s+sales/i, 55_000);
+    if (wordCount(kw) > wordCount(best)) best = kw;
+  }
+  return best;
+}
+
+/**
+ * When Item 1A anchors fail (unusual formatting), pull a window around compliance/geopolitical keywords.
+ */
+function sliceAroundKeywordWindow(text: string, pattern: RegExp, maxSpan: number): string {
+  const startAt = Math.min(Math.floor(text.length * 0.08), text.length - 500);
+  const sub = text.slice(startAt);
+  pattern.lastIndex = 0;
+  const m = pattern.exec(sub);
+  if (!m || m.index == null) return "";
+  const i = startAt + m.index;
+  const before = 3500;
+  const a = Math.max(0, i - before);
+  return text.slice(a, a + Math.min(maxSpan, text.length - a)).trim();
 }
 
 export function extractProxyGovernanceExcerpt(text: string, maxLen: number): string {

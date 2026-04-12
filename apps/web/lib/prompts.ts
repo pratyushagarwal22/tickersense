@@ -6,15 +6,16 @@ export function buildAskSystemPrompt(): string {
     "You are not a financial advisor. Never provide buy/sell/hold recommendations.",
     "Ground every claim in the provided company context (filings metadata, metrics, time series, excerpts).",
     "The context may include several years of quarterly revenue, net income, operating expenses, cost of revenue (when tagged), and sampled daily prices — use them for trend, margin, and period comparisons when relevant.",
-    "Before saying a figure or prior period is missing, scan revenue_series, net_income_series, operating_expenses_series, cost_of_revenue_series, segment_facts (when present), and financials for matching period_end or fiscal labels.",
-    "For segment-level operating income or revenue (e.g., AWS vs. retail): use segment_facts rows (metric_tag, segment_label, period_end, value_usd) when the array is non-empty. Labels may be terse XBRL member names—map them to the user’s wording when obvious.",
-    "When segment_facts is empty or does not list the segment asked about, rely on segment_reporting (summary + filing link) and filings — the public company-facts bulk feed often omits dimensional segment tables. Do not fabricate segment figures.",
-    "When workspace_ai is present, use workspace_ai.segment_bullets for segment/product/geography questions if bullets contain relevant facts; treat them as excerpt-based, not a substitute for the full filing.",
-    "When workspace_ai.mdna_excerpt, workspace_ai.risk_factors_excerpt, or workspace_ai.governance_excerpt is present, use that plain text for MD&A, risk themes, and proxy/governance topics—summarize what it says before claiming the topic is missing from context.",
-    "When the JSON includes peer_companies (non-empty), you may compare disclosures, metrics, or qualitative risks across those issuers using only data present in primary_company and each peer payload. If a peer field is empty, say so—do not invent peer-specific numbers.",
+    "Before saying a figure or prior period is missing, scan the JSON arrays and financials for matching period_end or fiscal labels.",
+    "For segment-level operating income or revenue: use labeled segment rows in the JSON when present. Labels may be terse XBRL member names—map them to the user’s wording when obvious.",
+    "When segment tables in the JSON are empty or omit the segment asked about, rely on segment reporting summaries and filing links. Do not fabricate segment figures.",
+    "When the JSON includes filing excerpts (MD&A, risk factors, proxy), use that plain text for those topics before claiming the topic is missing from context.",
+    "When a block titled like \"fetched for this question\" or \"YoY comparison\" appears after the JSON, treat it as additional authoritative plain text for this turn—prefer it for detailed risk or MD&A questions.",
+    "When peer company snapshots are included, compare only using data present for each issuer. If a peer field is empty, say so—do not invent peer-specific numbers.",
     "If two periods needed for YoY or growth appear in those arrays or financials, compute or quote them — do not claim the prior period is unavailable.",
     "The main answer, bullet_points, and highlights must be mutually consistent; never contradict yourself in the same response.",
-    "If information is truly absent from context, say so briefly and name the filing or field to check on SEC.gov.",
+    "If information is truly absent from context, say so briefly and point to the official filing on SEC.gov—do not mention internal data layout.",
+    "In answer, bullet_points, disclaimer, and unanswered_questions: write for a non-technical reader. Never quote or name JSON keys, snake_case field names, dot-notation paths, or developer terms (e.g. *_excerpt, workspace_ai). Use plain phrases like \"the risk-factor excerpt in the context\", \"the MD&A text provided\", or \"the filing excerpt\".",
     "Return clear, neutral, evidence-oriented language.",
     "For unanswered_questions: output 2–4 short optional follow-up questions the user could ask next to go deeper (not internal todos).",
   ].join(" ");
@@ -122,7 +123,12 @@ export function buildAskUserPrompt(input: {
   question: string;
   companyContext?: CompanyPayload | null;
   peerContexts?: CompanyPayload[];
+  /** Plain-text SEC excerpts fetched server-side for this question only (appended after JSON). */
+  questionSupplement?: string;
+  /** When supplement is large, trim JSON to stay within model limits. */
+  contextCharBudget?: number;
 }): string {
+  const budget = input.contextCharBudget ?? CONTEXT_CHAR_BUDGET;
   let ctx = "No structured company context was provided.";
   if (input.companyContext) {
     const primary = buildContextPayload(input.companyContext);
@@ -133,17 +139,23 @@ export function buildAskUserPrompt(input: {
       peer_companies: peerPayloads,
     };
     const raw = JSON.stringify(bundle, null, 2);
-    ctx =
-      raw.length > CONTEXT_CHAR_BUDGET
-        ? `${raw.slice(0, CONTEXT_CHAR_BUDGET)}\n…[context truncated for speed]`
-        : raw;
+    ctx = raw.length > budget ? `${raw.slice(0, budget)}\n…[context truncated for speed]` : raw;
   }
 
-  return [
+  const lines = [
     `Ticker: ${input.ticker}`,
     `User question: ${input.question}`,
     "",
-    "Company context (JSON): object with primary_company (full workspace) and peer_companies (slim snapshots for comparison questions). revenue_series, net_income_series, operating_expenses_series, cost_of_revenue_series are USD per SEC period end. workspace_ai may include mdna_excerpt, risk_factors_excerpt, and governance_excerpt (plain filing text) plus segment_bullets, section_summaries, etc. price_history is sampled daily closes.",
+    "Company context (JSON): primary_company is the full workspace; peer_companies are slimmer snapshots for comparisons. Monetary series are USD by SEC period end where noted. Some keys hold plain-text filing excerpts from the latest forms; price history may be sampled.",
     ctx,
-  ].join("\n");
+  ];
+  const sup = input.questionSupplement?.trim();
+  if (sup) {
+    lines.push(
+      "",
+      "Additional filing text for this question (plain text; use together with the JSON above):",
+      sup,
+    );
+  }
+  return lines.join("\n");
 }

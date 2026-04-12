@@ -44,7 +44,9 @@ def latest_filings_from_submissions(submissions: dict[str, Any], wanted: list[st
         cik_numeric = str(cik_numeric)
 
     out: list[FilingItem] = []
-    seen: set[str] = set()
+    # Keep two most recent 10-Ks (newest first) so TickerChat can compare YoY risk-factor language.
+    max_per_form: dict[str, int] = {f: 2 if f == "10-K" else 1 for f in wanted}
+    counts: dict[str, int] = {}
 
     # Arrays are usually aligned, but `primaryDocument` can be shorter; zip_longest avoids silent truncation.
     for form, filed_at, accession, doc in zip_longest(forms, dates, accs, docs, fillvalue=None):
@@ -52,9 +54,10 @@ def latest_filings_from_submissions(submissions: dict[str, Any], wanted: list[st
             continue
         if form not in wanted:
             continue
-        if form in seen:
+        n = counts.get(form, 0)
+        if n >= max_per_form.get(form, 1):
             continue
-        seen.add(form)
+        counts[form] = n + 1
 
         primary = str(doc).strip() if doc else None
         idx_url = _filing_index_url(cik_numeric, str(accession))
