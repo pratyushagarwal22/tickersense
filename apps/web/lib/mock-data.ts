@@ -196,6 +196,14 @@ export function getMockCompany(ticker: string): CompanyPayload {
         close: 100 + Math.sin(i / 3) * 4 + i * 0.1,
       };
     }),
+    revenue_series: Array.from({ length: 8 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (7 - i) * 3);
+      return {
+        period_end: d.toISOString().slice(0, 10),
+        value_usd: 80e9 + i * 2.5e9,
+      };
+    }),
     governance: {
       bullets: [
         "Demo governance summary: review DEF 14A for named executive officer compensation and equity grant practices.",

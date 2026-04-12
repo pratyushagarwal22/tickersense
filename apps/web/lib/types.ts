@@ -60,6 +60,12 @@ export interface PriceBar {
   close: number;
 }
 
+/** Revenue from SEC XBRL (USD), one row per reporting period end */
+export interface RevenuePoint {
+  period_end: string;
+  value_usd: number;
+}
+
 export interface GovernanceSummary {
   bullets: string[];
   sources: SourceRef[];
@@ -76,6 +82,8 @@ export interface CompanyPayload {
   financials: FinancialMetric[];
   technicals: TechnicalMetric[];
   price_history: PriceBar[];
+  /** Revenue history from SEC company facts (quarters/years as reported) */
+  revenue_series: RevenuePoint[];
   governance: GovernanceSummary;
   meta: {
     facts_available: boolean;

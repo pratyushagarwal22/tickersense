@@ -20,10 +20,16 @@ from app.models.schemas import (
     GovernanceSummary,
     InsightCard,
     PriceBar,
+    RevenuePoint,
     SourceRef,
     TechnicalMetric,
 )
-from app.parsers.filings import build_section_placeholders, latest_filings_from_submissions, pick_facts
+from app.parsers.filings import (
+    build_section_placeholders,
+    extract_revenue_series,
+    latest_filings_from_submissions,
+    pick_facts,
+)
 
 
 def _fmt_num(n: float | None, *, prefix: str = "", suffix: str = "") -> str:
@@ -189,9 +195,14 @@ async def build_company_payload(ticker: str) -> dict:
 
     facts_available = False
     financial_rows: list[dict[str, str | None]] = []
+    revenue_series: list[RevenuePoint] = []
     try:
         facts_json = await fetch_company_facts(cik)
         financial_rows = pick_facts(facts_json)
+        for r in extract_revenue_series(facts_json):
+            revenue_series.append(
+                RevenuePoint(period_end=str(r["period_end"]), value_usd=float(r["value_usd"]))
+            )
         facts_available = len(financial_rows) > 0
     except Exception as exc:
         logger.warning("company facts failed for {}: {}", t, exc)
@@ -240,16 +251,16 @@ async def build_company_payload(ticker: str) -> dict:
 
     px = _filing_by_form(filings, "DEF 14A")
     gov_lead = (
-        f"EDGAR shows a DEF 14A filed {px.filed_at}; start there for pay tables, CD&A, and board structure."
+        f"The latest shareholder proxy (DEF 14A) was filed on {px.filed_at}. That document explains how much top executives earn and how the board is structured."
         if px
-        else "No DEF 14A link in this payload—search EDGAR for the latest proxy when available."
+        else "We couldn’t attach a proxy link here—on SEC.gov you can search the company and open the newest DEF 14A."
     )
     governance = GovernanceSummary(
         bullets=[
             gov_lead,
-            "Review named executive officer compensation, equity grant practices, and clawback / hedging policies.",
-            "Check board independence, committee charters, and related-party transaction disclosures.",
-            "Next step: open the linked DEF 14A (or search EDGAR) and read the summary comp table plus CD&A narrative.",
+            "Look for the “summary compensation table” for headline pay, then read the narrative around it for how bonuses and stock awards are decided.",
+            "Check who sits on the board and whether committees (audit, compensation) are independent—those basics tell you how seriously oversight is taken.",
+            "Open the linked filing below (or find it on EDGAR) when you want details; numbers here are pointers, not a substitute for reading the proxy.",
         ],
         sources=(
             [SourceRef(label=f"DEF 14A filed {px.filed_at}", url=px.filing_url, form="DEF 14A")]
@@ -274,6 +285,7 @@ async def build_company_payload(ticker: str) -> dict:
         financials=financials[:8],
         technicals=techs,
         price_history=price_history,
+        revenue_series=revenue_series,
         governance=governance,
         meta=CompanyMeta(
             facts_available=facts_available,

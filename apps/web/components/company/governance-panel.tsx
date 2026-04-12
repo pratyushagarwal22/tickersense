@@ -7,9 +7,10 @@ export function GovernancePanel({ data }: { data: CompanyPayload }) {
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">Governance summary</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            High-level prompts for DEF 14A review (not a score or a recommendation).
+          <h2 className="text-lg font-semibold text-slate-950">Governance & executive pay</h2>
+          <p className="mt-1 text-balance text-sm leading-relaxed text-slate-600">
+            The “proxy” filing explains who runs the company and how leaders are paid. Read it for context—not as a
+            scorecard on the stock.
           </p>
         </div>
         <Scale className="h-5 w-5 text-slate-400" />

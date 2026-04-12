@@ -64,6 +64,11 @@ class PriceBar(BaseModel):
     close: float
 
 
+class RevenuePoint(BaseModel):
+    period_end: str
+    value_usd: float
+
+
 class GovernanceSummary(BaseModel):
     bullets: list[str] = Field(default_factory=list)
     sources: list[SourceRef] = Field(default_factory=list)
@@ -86,6 +91,7 @@ class CompanyPayload(BaseModel):
     financials: list[FinancialMetric] = Field(default_factory=list)
     technicals: list[TechnicalMetric] = Field(default_factory=list)
     price_history: list[PriceBar] = Field(default_factory=list)
+    revenue_series: list[RevenuePoint] = Field(default_factory=list)
     governance: GovernanceSummary = Field(default_factory=GovernanceSummary)
     meta: CompanyMeta
 

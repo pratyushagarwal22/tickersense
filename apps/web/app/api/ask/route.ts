@@ -12,23 +12,36 @@ const BodySchema = z.object({
   companyContext: z.any().optional().nullable(),
 });
 
+/**
+ * Parse model output into one JSON object. Handles ```json fences; if the closing
+ * fence is missing (truncation), still tries the object between first { and last }.
+ */
 function tryParseJsonObject(text: string): Record<string, unknown> | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) {
+  const raw = text.trim();
+
+  let body = raw.replace(/^```(?:json)?\s*\n?/i, "");
+  const fenceEnd = body.lastIndexOf("```");
+  if (fenceEnd !== -1) {
+    body = body.slice(0, fenceEnd).trim();
+  }
+
+  const tryParse = (s: string): Record<string, unknown> | null => {
+    const t = s.trim();
+    if (!t) return null;
     try {
-      return JSON.parse(fenced[1].trim()) as Record<string, unknown>;
+      return JSON.parse(t) as Record<string, unknown>;
     } catch {
-      /* fall through */
+      return null;
     }
-  }
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
+  };
+
+  const direct = tryParse(body);
+  if (direct) return direct;
+
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  return tryParse(body.slice(start, end + 1));
 }
 
 function envTrim(name: string): string | undefined {
@@ -73,8 +86,10 @@ function normalizeAskResponse(parsed: Record<string, unknown>, ticker: string): 
 }
 
 const JSON_OUTPUT_SUFFIX =
-  "\n\nReturn ONLY one JSON object (no text before or after) with keys: answer, bullet_points, supporting_sources, unanswered_questions, disclaimer. " +
-  "supporting_sources must be an array of objects {label, url?, form?}.";
+  "\n\nReturn ONE compact JSON object only (no markdown fences, no prose outside the JSON) with keys: " +
+  "answer, bullet_points, supporting_sources, unanswered_questions, disclaimer. " +
+  "supporting_sources: array of {label, url?, form?}. " +
+  "Keep answer under ~120 words and bullet_points to 3–5 short items so the JSON stays small.";
 
 async function readApiError(res: Response): Promise<string> {
   const t = await res.text();
@@ -111,7 +126,7 @@ async function callOpenAI(
         },
       ],
     }),
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(45_000),
   });
 
   if (!res.ok) {
@@ -124,7 +139,11 @@ async function callOpenAI(
   };
   const text = json.choices?.[0]?.message?.content ?? "";
   const parsed = tryParseJsonObject(text);
-  if (!parsed) throw new Error("unparseable model output");
+  if (!parsed) {
+    throw new Error(
+      `unparseable model output (first 240 chars): ${text.slice(0, 240).replace(/\s+/g, " ")}`,
+    );
+  }
   return normalizeAskResponse(parsed, ticker);
 }
 
@@ -148,12 +167,15 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 700,
+      // JSON payloads need headroom; 700 often truncates mid-object → 502
+      max_tokens: 2048,
       temperature: 0.2,
-      system: system + " Output must be JSON only as specified in the user message.",
+      system:
+        system +
+        " Respond with raw JSON only (no markdown fences), same keys as the user message.",
       messages: [{ role: "user", content: user + JSON_OUTPUT_SUFFIX }],
     }),
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {
@@ -165,7 +187,7 @@ async function callAnthropic(
   const parsed = tryParseJsonObject(text);
   if (!parsed) {
     throw new Error(
-      `unparseable model output (first 200 chars): ${text.slice(0, 200).replace(/\s+/g, " ")}`,
+      `unparseable model output (first 280 chars): ${text.slice(0, 280).replace(/\s+/g, " ")}`,
     );
   }
   return normalizeAskResponse(parsed, ticker);

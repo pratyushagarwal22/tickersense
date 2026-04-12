@@ -4,9 +4,10 @@ import { SourcePill } from "@/components/company/source-pill";
 export function SectionsPanel({ data }: { data: CompanyPayload }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
-      <h2 className="text-lg font-semibold text-slate-950">Key sections (placeholders)</h2>
-      <p className="mt-1 text-sm text-slate-600">
-        v1 keeps excerpts lightweight; deeper extraction can plug in behind the same shape.
+      <h2 className="text-lg font-semibold text-slate-950">What to read in the filings</h2>
+      <p className="mt-1 text-sm leading-relaxed text-slate-600">
+        These cards point you to the usual sections investors open first. Full text still lives in the official filing—use
+        the links to jump straight to the source.
       </p>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -23,7 +24,7 @@ export function SectionsPanel({ data }: { data: CompanyPayload }) {
             <p className="mt-3 text-sm leading-relaxed text-slate-700">{s.excerpt}</p>
             {s.source_url ? (
               <div className="mt-3">
-                <SourcePill source={{ label: "Open source", url: s.source_url, form: s.form }} />
+                <SourcePill source={{ label: "Open official filing", url: s.source_url, form: s.form }} />
               </div>
             ) : null}
           </div>

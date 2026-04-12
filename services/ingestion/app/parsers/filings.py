@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from itertools import zip_longest
 from typing import Any
 
@@ -94,47 +95,51 @@ def build_section_placeholders(filings: list[FilingItem]) -> list[FilingSectionE
 
     def lead(date: str | None, form: str) -> str:
         if date:
-            return f"From EDGAR metadata: latest linked {form} filing date is {date}. "
-        return f"No {form} link resolved in this payload yet. "
+            return f"Latest {form} on file with the SEC is dated {date}. "
+        return f"We could not attach a direct {form} link in this view. "
 
     return [
         FilingSectionExcerpt(
             id="business",
-            label="Business",
+            label="What the company does (Business)",
             form="10-K",
             excerpt=(
                 f"{lead(tenk_d, '10-K')}"
-                "Item 1 (Business) text is not auto-extracted in v1—open the primary document and read Item 1 for the company’s own description of operations."
+                "In the annual report, look for “Item 1. Business”—that’s management’s plain-English overview of products, customers, and competition. "
+                "Open the filing below to read it at the source."
             ),
             source_url=tenk,
         ),
         FilingSectionExcerpt(
             id="risk_factors",
-            label="Risk factors",
+            label="Risks to know about",
             form="10-K",
             excerpt=(
                 f"{lead(tenk_d, '10-K')}"
-                "Item 1A (Risk Factors) is where material risks are listed; compare wording to the prior 10-K to see what changed."
+                "“Risk factors” list what could hurt the business (regulation, competition, supply chain, etc.). "
+                "Skim for risks that are new or longer than last year."
             ),
             source_url=tenk,
         ),
         FilingSectionExcerpt(
             id="mdna",
-            label="MD&A",
+            label="How management explains results (MD&A)",
             form="10-Q",
             excerpt=(
                 f"{lead(tenq_d or tenk_d, '10-Q' if tenq_d else '10-K')}"
-                "Item 2 (MD&A) in the 10-Q (or Item 7 in the 10-K) is usually the fastest path to management’s explanation of results and outlook."
+                "Management’s discussion (MD&A) connects the numbers to the story—why sales or margins moved. "
+                "Start here when you want “why” behind the quarter."
             ),
             source_url=tenq or tenk,
         ),
         FilingSectionExcerpt(
             id="governance",
-            label="Governance / executive compensation",
+            label="Pay & board (proxy statement)",
             form="DEF 14A",
             excerpt=(
                 f"{lead(def_d, 'DEF 14A')}"
-                "DEF 14A holds executive compensation tables, CD&A, and board/governance disclosures—use the linked proxy as the source of truth."
+                "The proxy explains how executives are paid and how the board oversees the company. "
+                "Use it to see incentives—not to predict the stock price."
             ),
             source_url=def14a,
         ),
@@ -155,8 +160,29 @@ def _format_fact_value(val: float | int) -> str:
     return f"${x:,.2f}"
 
 
+def _parse_day_str(s: str | None) -> date | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s)[:10]).date()
+    except ValueError:
+        return None
+
+
+def _parse_obs_date(r: dict[str, Any]) -> date | None:
+    for k in ("end", "instant", "filed"):
+        v = r.get(k)
+        if not v:
+            continue
+        try:
+            return datetime.fromisoformat(str(v)[:10]).date()
+        except ValueError:
+            continue
+    return None
+
+
 def _latest_from_units(node: dict[str, Any]) -> tuple[float | int | None, str | None, str | None]:
-    """SEC company facts nest observations under tag['units']['USD'], not tag['USD']."""
+    """Pick the observation with the latest reporting period (by end/instant date)."""
     units_obj = node.get("units")
     if not isinstance(units_obj, dict):
         return None, None, None
@@ -165,34 +191,29 @@ def _latest_from_units(node: dict[str, Any]) -> tuple[float | int | None, str | 
     for key in ("USD", "EUR", "GBP", "CAD", "shares", "pure", "EPS", "USD/shares"):
         block = units_obj.get(key)
         if isinstance(block, list) and block:
-            rows = block
+            rows.extend(block)
             break
     if not rows:
         for block in units_obj.values():
             if isinstance(block, list) and block:
-                rows = block
+                rows.extend(block)
                 break
+    rows = [r for r in rows if r.get("val") is not None]
     if not rows:
         return None, None, None
 
-    def sort_key(r: dict[str, Any]) -> tuple[str, int, int]:
-        end = str(r.get("end") or r.get("instant") or "")
+    def period_key(r: dict[str, Any]) -> tuple[date, int]:
+        d = _parse_obs_date(r) or date.min
         fp = str(r.get("fp") or "")
-        fy_raw = r.get("fy")
-        try:
-            fy = int(fy_raw) if fy_raw is not None else 0
-        except (TypeError, ValueError):
-            fy = 0
         fy_pref = 0 if fp == "FY" else 1
-        return (end, fy_pref, fy)
+        return (d, -fy_pref)
 
-    rows_sorted = sorted(rows, key=sort_key)
-    last = rows_sorted[-1]
-    val = last.get("val")
+    best = max(rows, key=period_key)
+    val = best.get("val")
     if val is None:
         return None, None, None
-    end = last.get("end") or last.get("instant")
-    form = last.get("form")
+    end = best.get("end") or best.get("instant")
+    form = best.get("form")
     return val, str(end) if end else None, str(form) if form else None
 
 
@@ -205,37 +226,136 @@ def pick_facts(company_facts: dict[str, Any]) -> list[dict[str, str | None]]:
     if not isinstance(us_gaap, dict):
         return []
 
-    def latest_value(tag: str) -> tuple[str | None, str | None]:
+    def fmt_value(tag: str, raw: float | int) -> str:
+        if isinstance(raw, (int, float)) and abs(float(raw)) < 1000 and tag == "EarningsPerShareDiluted":
+            return f"{float(raw):.2f}"
+        if isinstance(raw, (int, float)):
+            return _format_fact_value(raw)
+        return str(raw)
+
+    def latest_for_tag(tag: str) -> tuple[str | None, str | None, date | None]:
         node = us_gaap.get(tag)
         if not isinstance(node, dict):
-            return None, None
+            return None, None, None
         raw, end, _form = _latest_from_units(node)
         if raw is None:
-            return None, None
-        if isinstance(raw, (int, float)):
-            if abs(float(raw)) < 1000 and tag == "EarningsPerShareDiluted":
-                return f"{float(raw):.2f}", end
-            return _format_fact_value(raw), end
-        return str(raw), end
+            return None, None, None
+        d = None
+        if end:
+            try:
+                d = datetime.fromisoformat(end[:10]).date()
+            except ValueError:
+                d = None
+        return fmt_value(tag, raw), end, d
 
-    # Order: try common revenue tags first (filers vary).
-    candidates = [
-        ("Revenues", "Revenue"),
-        ("SalesRevenueNet", "Revenue"),
-        ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenue (ASC 606)"),
+    out: list[dict[str, str | None]] = []
+
+    # Revenue: many filers report under ASC 606 OR legacy "Revenues" — pick ONE line with the newest period.
+    revenue_tags = [
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "SalesRevenueNet",
+    ]
+    revenue_opts: list[tuple[date, str, str | None]] = []
+    for tag in revenue_tags:
+        val, end, d = latest_for_tag(tag)
+        if not val:
+            continue
+        period = d or _parse_day_str(end) or date.min
+        revenue_opts.append((period, val, end))
+    if revenue_opts:
+        _d, val, end = max(revenue_opts, key=lambda x: x[0])
+        out.append(
+            {
+                "label": "Revenue",
+                "value": val,
+                "period": end,
+                "source": "SEC XBRL company facts",
+            }
+        )
+
+    other = [
         ("NetIncomeLoss", "Net income"),
         ("EarningsPerShareDiluted", "EPS (diluted)"),
         ("Assets", "Total assets"),
     ]
+    for tag, label in other:
+        val, end, _d = latest_for_tag(tag)
+        if val:
+            out.append({"label": label, "value": val, "period": end, "source": "SEC XBRL company facts"})
 
-    out: list[dict[str, str | None]] = []
-    seen_labels: set[str] = set()
-    for tag, label in candidates:
-        value, end = latest_value(tag)
-        if value and label not in seen_labels:
-            seen_labels.add(label)
-            out.append({"label": label, "value": value, "period": end, "source": "SEC XBRL company facts"})
-        if len(out) >= 4:
+    return out[:6]
+
+
+def _rows_from_units_node(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect fact rows from a company-facts concept node; prefer USD (same strategy as _latest_from_units)."""
+    units_obj = node.get("units")
+    if not isinstance(units_obj, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for key in ("USD", "EUR", "GBP", "CAD", "shares", "pure", "EPS", "USD/shares"):
+        block = units_obj.get(key)
+        if isinstance(block, list) and block:
+            rows.extend([r for r in block if isinstance(r, dict) and r.get("val") is not None])
+            break
+    if not rows:
+        for block in units_obj.values():
+            if isinstance(block, list) and block:
+                rows.extend([r for r in block if isinstance(r, dict) and r.get("val") is not None])
+                break
+    return rows
+
+
+def extract_revenue_series(
+    company_facts: dict[str, Any],
+    *,
+    max_points: int = 20,
+) -> list[dict[str, Any]]:
+    """Time series of revenue (USD) from the best matching us-gaap tag, deduped by reporting period."""
+    facts = company_facts.get("facts")
+    if not isinstance(facts, dict):
+        return []
+    us_gaap = facts.get("us-gaap")
+    if not isinstance(us_gaap, dict):
+        return []
+
+    revenue_tags = [
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "SalesRevenueNet",
+    ]
+    rows: list[dict[str, Any]] = []
+    for tag in revenue_tags:
+        node = us_gaap.get(tag)
+        if not isinstance(node, dict):
+            continue
+        rows = _rows_from_units_node(node)
+        if rows:
             break
 
+    if not rows:
+        return []
+
+    by_end: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        end = str(r.get("end") or r.get("instant") or "")
+        if not end:
+            continue
+        filed = str(r.get("filed") or "")
+        prev = by_end.get(end)
+        if prev is None or filed >= str(prev.get("filed") or ""):
+            by_end[end] = r
+
+    sorted_ends = sorted(by_end.keys(), key=lambda e: _parse_day_str(e) or date.min)
+    tail = sorted_ends[-max_points:]
+    out: list[dict[str, Any]] = []
+    for end in tail:
+        val = by_end[end].get("val")
+        if val is None:
+            continue
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            continue
+        out.append({"period_end": end, "value_usd": v})
     return out
