@@ -1,0 +1,1 @@
+"""TickerSense ingestion service."""
