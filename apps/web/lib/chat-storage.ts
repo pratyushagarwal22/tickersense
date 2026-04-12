@@ -2,7 +2,7 @@ import type { AskResponseBody } from "@/lib/types";
 
 export const CHAT_STORAGE_PREFIX = "tickersense-chat-v1";
 
-export interface CopilotChatTurn {
+export interface TickerChatTurn {
   id: string;
   question: string;
   response: AskResponseBody;
@@ -13,7 +13,7 @@ export function chatStorageKey(ticker: string): string {
   return `${CHAT_STORAGE_PREFIX}-${ticker.trim().toUpperCase()}`;
 }
 
-export function loadChat(ticker: string): CopilotChatTurn[] {
+export function loadChat(ticker: string): TickerChatTurn[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.sessionStorage.getItem(chatStorageKey(ticker));
@@ -21,7 +21,7 @@ export function loadChat(ticker: string): CopilotChatTurn[] {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (t): t is CopilotChatTurn =>
+      (t): t is TickerChatTurn =>
         typeof t === "object" &&
         t !== null &&
         "id" in t &&
@@ -33,7 +33,7 @@ export function loadChat(ticker: string): CopilotChatTurn[] {
   }
 }
 
-export function saveChat(ticker: string, turns: CopilotChatTurn[]): void {
+export function saveChat(ticker: string, turns: TickerChatTurn[]): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(chatStorageKey(ticker), JSON.stringify(turns));

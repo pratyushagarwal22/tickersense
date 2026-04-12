@@ -10,7 +10,7 @@ export async function fetchCompany(ticker: string): Promise<CompanyPayload> {
   return (await res.json()) as CompanyPayload;
 }
 
-export async function askCopilot(body: AskRequestBody): Promise<AskResponseBody> {
+export async function askTickerChat(body: AskRequestBody): Promise<AskResponseBody> {
   const res = await fetch("/api/ask", {
     method: "POST",
     headers: { "content-type": "application/json" },

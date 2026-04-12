@@ -188,22 +188,60 @@ export function getMockCompany(ticker: string): CompanyPayload {
       { label: "RSI (14)", value: "—" },
       { label: "52-week range", value: "— / —" },
     ],
-    price_history: Array.from({ length: 30 }).map((_, i) => {
+    price_history: Array.from({ length: 120 }).map((_, i) => {
       const d = new Date();
-      d.setDate(d.getDate() - (29 - i));
+      d.setDate(d.getDate() - (119 - i));
       return {
         date: d.toISOString().slice(0, 10),
-        close: 100 + Math.sin(i / 3) * 4 + i * 0.1,
+        close: 100 + Math.sin(i / 3) * 4 + i * 0.08,
       };
     }),
-    revenue_series: Array.from({ length: 8 }).map((_, i) => {
+    benchmark_history: Array.from({ length: 120 }).map((_, i) => {
       const d = new Date();
-      d.setMonth(d.getMonth() - (7 - i) * 3);
+      d.setDate(d.getDate() - (119 - i));
+      return {
+        date: d.toISOString().slice(0, 10),
+        close: 98 + Math.sin(i / 4) * 3 + i * 0.06,
+      };
+    }),
+    benchmark_label: "S&P 500",
+    revenue_series: Array.from({ length: 12 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (11 - i) * 3);
       return {
         period_end: d.toISOString().slice(0, 10),
-        value_usd: 80e9 + i * 2.5e9,
+        value_usd: 80e9 + i * 1.8e9,
       };
     }),
+    net_income_series: Array.from({ length: 12 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (11 - i) * 3);
+      return {
+        period_end: d.toISOString().slice(0, 10),
+        value_usd: 18e9 + i * 0.4e9,
+      };
+    }),
+    operating_expenses_series: Array.from({ length: 12 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (11 - i) * 3);
+      return {
+        period_end: d.toISOString().slice(0, 10),
+        value_usd: 45e9 + i * 0.9e9,
+      };
+    }),
+    cost_of_revenue_series: Array.from({ length: 12 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (11 - i) * 3);
+      return {
+        period_end: d.toISOString().slice(0, 10),
+        value_usd: 52e9 + i * 1e9,
+      };
+    }),
+    segment_facts: [],
+    segment_reporting: {
+      summary:
+        "Segment operating results are in 10-Q/10-K segment footnotes. Demo workspace: bulk API segment rows may be empty.",
+    },
     governance: {
       bullets: [
         "Demo governance summary: review DEF 14A for named executive officer compensation and equity grant practices.",

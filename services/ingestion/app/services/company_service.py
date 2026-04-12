@@ -21,12 +21,17 @@ from app.models.schemas import (
     InsightCard,
     PriceBar,
     RevenuePoint,
+    SegmentFactPoint,
+    SegmentReportingContext,
     SourceRef,
     TechnicalMetric,
 )
 from app.parsers.filings import (
     build_section_placeholders,
+    build_segment_reporting_context,
     extract_revenue_series,
+    extract_segment_dimensional_facts,
+    extract_us_gaap_metric_series,
     latest_filings_from_submissions,
     pick_facts,
 )
@@ -196,6 +201,11 @@ async def build_company_payload(ticker: str) -> dict:
     facts_available = False
     financial_rows: list[dict[str, str | None]] = []
     revenue_series: list[RevenuePoint] = []
+    net_income_series: list[RevenuePoint] = []
+    operating_expenses_series: list[RevenuePoint] = []
+    cost_of_revenue_series: list[RevenuePoint] = []
+    segment_facts: list[SegmentFactPoint] = []
+    segment_reporting = SegmentReportingContext(**build_segment_reporting_context(filings))
     try:
         facts_json = await fetch_company_facts(cik)
         financial_rows = pick_facts(facts_json)
@@ -203,6 +213,37 @@ async def build_company_payload(ticker: str) -> dict:
             revenue_series.append(
                 RevenuePoint(period_end=str(r["period_end"]), value_usd=float(r["value_usd"]))
             )
+        for r in extract_us_gaap_metric_series(facts_json, ["NetIncomeLoss"], max_points=80):
+            net_income_series.append(
+                RevenuePoint(period_end=str(r["period_end"]), value_usd=float(r["value_usd"]))
+            )
+        # Prefer the tag whose series extends latest (legacy OperatingExpenses can stall years ago).
+        for r in extract_us_gaap_metric_series(
+            facts_json,
+            [
+                "CostsAndExpenses",
+                "OperatingExpenses",
+                "OperatingCostsAndExpenses",
+            ],
+            max_points=120,
+        ):
+            operating_expenses_series.append(
+                RevenuePoint(period_end=str(r["period_end"]), value_usd=float(r["value_usd"]))
+            )
+        for r in extract_us_gaap_metric_series(
+            facts_json,
+            [
+                "CostOfRevenue",
+                "CostOfGoodsAndServicesSold",
+                "CostOfSales",
+            ],
+            max_points=120,
+        ):
+            cost_of_revenue_series.append(
+                RevenuePoint(period_end=str(r["period_end"]), value_usd=float(r["value_usd"]))
+            )
+        for row in extract_segment_dimensional_facts(facts_json, max_rows=200):
+            segment_facts.append(SegmentFactPoint(**row))
         facts_available = len(financial_rows) > 0
     except Exception as exc:
         logger.warning("company facts failed for {}: {}", t, exc)
@@ -248,6 +289,15 @@ async def build_company_payload(ticker: str) -> dict:
         if market.price_history
         else _synthetic_prices()
     )
+    benchmark_history = [
+        PriceBar(
+            date=str(x["date"]),
+            close=float(x["close"]) if x.get("close") is not None else None,
+        )
+        for x in (market.benchmark_history or [])
+    ]
+    if not market.price_history:
+        benchmark_history = []
 
     px = _filing_by_form(filings, "DEF 14A")
     gov_lead = (
@@ -285,7 +335,14 @@ async def build_company_payload(ticker: str) -> dict:
         financials=financials[:8],
         technicals=techs,
         price_history=price_history,
+        benchmark_history=benchmark_history,
+        benchmark_label=market.benchmark_label or "S&P 500",
         revenue_series=revenue_series,
+        net_income_series=net_income_series,
+        operating_expenses_series=operating_expenses_series,
+        cost_of_revenue_series=cost_of_revenue_series,
+        segment_facts=segment_facts,
+        segment_reporting=segment_reporting,
         governance=governance,
         meta=CompanyMeta(
             facts_available=facts_available,

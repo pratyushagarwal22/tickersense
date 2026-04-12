@@ -57,18 +57,37 @@ export interface TechnicalMetric {
 
 export interface PriceBar {
   date: string;
-  close: number;
+  /** Stock close; benchmark may use null when no session match */
+  close: number | null;
 }
 
-/** Revenue from SEC XBRL (USD), one row per reporting period end */
-export interface RevenuePoint {
+/** SEC XBRL metric (USD), one row per reporting period end */
+export interface MetricPoint {
   period_end: string;
   value_usd: number;
 }
 
+/** @deprecated alias — use MetricPoint */
+export type RevenuePoint = MetricPoint;
+
 export interface GovernanceSummary {
   bullets: string[];
   sources: SourceRef[];
+}
+
+export interface SegmentFactPoint {
+  metric_tag: string;
+  period_end: string;
+  value_usd: number;
+  segment_label: string;
+  fiscal_period?: string | null;
+}
+
+export interface SegmentReportingContext {
+  summary: string;
+  filing_url?: string | null;
+  form?: string | null;
+  filed_at?: string | null;
 }
 
 export interface CompanyPayload {
@@ -82,8 +101,21 @@ export interface CompanyPayload {
   financials: FinancialMetric[];
   technicals: TechnicalMetric[];
   price_history: PriceBar[];
-  /** Revenue history from SEC company facts (quarters/years as reported) */
-  revenue_series: RevenuePoint[];
+  /** S&P 500 (or label) closes aligned by calendar date where available */
+  benchmark_history?: PriceBar[];
+  benchmark_label?: string;
+  /** Revenue history from SEC company facts (quarters preferred; FY excluded when quarters exist) */
+  revenue_series: MetricPoint[];
+  /** Net income (NetIncomeLoss) — same period rules as revenue */
+  net_income_series?: MetricPoint[];
+  /** Operating expenses (OperatingExpenses or CostsAndExpenses) */
+  operating_expenses_series?: MetricPoint[];
+  /** Cost of revenue / COGS — for margin and ratio questions when tagged */
+  cost_of_revenue_series?: MetricPoint[];
+  /** Dimensional segment rows when SEC company-facts includes them (often empty for large filers). */
+  segment_facts?: SegmentFactPoint[];
+  /** Where to read segment tables when bulk facts omit them */
+  segment_reporting?: SegmentReportingContext;
   governance: GovernanceSummary;
   meta: {
     facts_available: boolean;

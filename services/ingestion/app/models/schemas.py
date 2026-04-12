@@ -61,12 +61,31 @@ class TechnicalMetric(BaseModel):
 
 class PriceBar(BaseModel):
     date: str
-    close: float
+    close: float | None = None
 
 
 class RevenuePoint(BaseModel):
     period_end: str
     value_usd: float
+
+
+class SegmentFactPoint(BaseModel):
+    """Dimensional (segment) row when present in SEC company-facts JSON."""
+
+    metric_tag: str
+    period_end: str
+    value_usd: float
+    segment_label: str
+    fiscal_period: str | None = None
+
+
+class SegmentReportingContext(BaseModel):
+    """Guidance + links when bulk facts omit segment tables."""
+
+    summary: str
+    filing_url: str | None = None
+    form: str | None = None
+    filed_at: str | None = None
 
 
 class GovernanceSummary(BaseModel):
@@ -91,7 +110,14 @@ class CompanyPayload(BaseModel):
     financials: list[FinancialMetric] = Field(default_factory=list)
     technicals: list[TechnicalMetric] = Field(default_factory=list)
     price_history: list[PriceBar] = Field(default_factory=list)
+    benchmark_history: list[PriceBar] = Field(default_factory=list)
+    benchmark_label: str | None = "S&P 500"
     revenue_series: list[RevenuePoint] = Field(default_factory=list)
+    net_income_series: list[RevenuePoint] = Field(default_factory=list)
+    operating_expenses_series: list[RevenuePoint] = Field(default_factory=list)
+    cost_of_revenue_series: list[RevenuePoint] = Field(default_factory=list)
+    segment_facts: list[SegmentFactPoint] = Field(default_factory=list)
+    segment_reporting: SegmentReportingContext | None = None
     governance: GovernanceSummary = Field(default_factory=GovernanceSummary)
     meta: CompanyMeta
 

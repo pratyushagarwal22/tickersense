@@ -57,7 +57,7 @@ export default function HomePage() {
         <p className="mx-auto max-w-2xl text-center text-sm leading-relaxed text-slate-600 md:text-base">
           Everything here is built from <strong className="font-medium text-slate-800">public SEC documents</strong> and{" "}
           <strong className="font-medium text-slate-800">market data</strong>. You don’t need a finance degree: use the
-          timeline to open the real filing, skim the sections below, then ask Copilot questions in everyday language.
+          timeline to open the real filing, skim the sections below, then ask TickerChat questions in everyday language.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {FILING_HELP.map((item) => (

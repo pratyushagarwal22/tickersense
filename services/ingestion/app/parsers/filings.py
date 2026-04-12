@@ -133,6 +133,18 @@ def build_section_placeholders(filings: list[FilingItem]) -> list[FilingSectionE
             source_url=tenq or tenk,
         ),
         FilingSectionExcerpt(
+            id="segments",
+            label="Segment results (operating income by business)",
+            form="10-Q",
+            excerpt=(
+                f"{lead(tenq_d or tenk_d, '10-Q' if tenq_d else '10-K')}"
+                "Operating income and revenue by segment (e.g., AWS, North America, International, Advertising) appear in the "
+                "segment reporting footnotes and tables—usually in the 10-Q/10-K financial statements section. "
+                "The SEC company-facts API snapshot often omits these dimensional rows; read the linked filing for authoritative segment figures."
+            ),
+            source_url=tenq or tenk,
+        ),
+        FilingSectionExcerpt(
             id="governance",
             label="Pay & board (proxy statement)",
             form="DEF 14A",
@@ -306,51 +318,84 @@ def _rows_from_units_node(node: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def extract_revenue_series(
+QUARTERLY_FP = frozenset({"Q1", "Q2", "Q3", "Q4"})
+
+
+def _row_fp(r: dict[str, Any]) -> str:
+    return str(r.get("fp") or "").strip().upper()
+
+
+def _filter_period_consistent_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Avoid mixing quarterly points with FY annual totals (FY spikes every ~4th bar on mixed charts)."""
+    if not rows:
+        return []
+    quarterly = [r for r in rows if _row_fp(r) in QUARTERLY_FP]
+    if len(quarterly) >= 3:
+        return quarterly
+    fy_rows = [r for r in rows if _row_fp(r) == "FY"]
+    if len(fy_rows) >= 2:
+        return fy_rows
+    if quarterly:
+        return quarterly
+    no_fy = [r for r in rows if _row_fp(r) != "FY"]
+    return no_fy if no_fy else rows
+
+
+def _normalize_period_day(end: str) -> str:
+    """ISO date prefix so revenue vs net income align on the same calendar key."""
+    s = str(end).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    return s
+
+
+def _dedupe_rows_by_period_end(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_end: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        raw = str(r.get("end") or r.get("instant") or "")
+        if not raw:
+            continue
+        end = _normalize_period_day(raw)
+        filed = str(r.get("filed") or "")
+        prev = by_end.get(end)
+        if prev is None or filed >= str(prev.get("filed") or ""):
+            by_end[end] = r
+    sorted_ends = sorted(by_end.keys(), key=lambda e: _parse_day_str(e) or date.min)
+    return [by_end[e] for e in sorted_ends]
+
+
+def _extract_us_gaap_metric_series_single_tag(
     company_facts: dict[str, Any],
+    tag: str,
     *,
-    max_points: int = 20,
+    max_points: int,
 ) -> list[dict[str, Any]]:
-    """Time series of revenue (USD) from the best matching us-gaap tag, deduped by reporting period."""
+    """Build a period series from one us-gaap tag, or []."""
     facts = company_facts.get("facts")
     if not isinstance(facts, dict):
         return []
     us_gaap = facts.get("us-gaap")
     if not isinstance(us_gaap, dict):
         return []
+    node = us_gaap.get(tag)
+    if not isinstance(node, dict):
+        return []
 
-    revenue_tags = [
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "Revenues",
-        "SalesRevenueNet",
-    ]
-    rows: list[dict[str, Any]] = []
-    for tag in revenue_tags:
-        node = us_gaap.get(tag)
-        if not isinstance(node, dict):
-            continue
-        rows = _rows_from_units_node(node)
-        if rows:
-            break
-
+    rows = _rows_from_units_node(node)
     if not rows:
         return []
 
-    by_end: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        end = str(r.get("end") or r.get("instant") or "")
-        if not end:
-            continue
-        filed = str(r.get("filed") or "")
-        prev = by_end.get(end)
-        if prev is None or filed >= str(prev.get("filed") or ""):
-            by_end[end] = r
+    rows = _filter_period_consistent_rows(rows)
+    rows = _dedupe_rows_by_period_end(rows)
+    tail = rows[-max_points:] if len(rows) > max_points else rows
 
-    sorted_ends = sorted(by_end.keys(), key=lambda e: _parse_day_str(e) or date.min)
-    tail = sorted_ends[-max_points:]
     out: list[dict[str, Any]] = []
-    for end in tail:
-        val = by_end[end].get("val")
+    for r in tail:
+        raw = str(r.get("end") or r.get("instant") or "")
+        if not raw:
+            continue
+        end = _normalize_period_day(raw)
+        val = r.get("val")
         if val is None:
             continue
         try:
@@ -359,3 +404,151 @@ def extract_revenue_series(
             continue
         out.append({"period_end": end, "value_usd": v})
     return out
+
+
+def extract_us_gaap_metric_series(
+    company_facts: dict[str, Any],
+    tag_names: list[str],
+    *,
+    max_points: int = 80,
+) -> list[dict[str, Any]]:
+    """Time series from us-gaap tags; USD-preferring; quarterly vs FY not mixed.
+
+    When multiple tag names are provided, picks the candidate whose **latest period_end**
+    is most recent (avoids stale concepts e.g. legacy OperatingExpenses ending years ago
+    while CostsAndExpenses carries current quarters).
+    """
+    if not tag_names:
+        return []
+
+    best: list[dict[str, Any]] | None = None
+    best_latest: date | None = None
+    for tag in tag_names:
+        out = _extract_us_gaap_metric_series_single_tag(
+            company_facts, tag, max_points=max_points
+        )
+        if not out:
+            continue
+        last_d = _parse_day_str(out[-1]["period_end"])
+        if last_d is None:
+            continue
+        if best_latest is None or last_d > best_latest:
+            best_latest = last_d
+            best = out
+
+    return best or []
+
+
+def _segment_member_label(segments: Any) -> str:
+    if not isinstance(segments, list) or not segments:
+        return "segment"
+    parts: list[str] = []
+    for seg in segments[:8]:
+        if not isinstance(seg, dict):
+            continue
+        m = str(seg.get("member") or seg.get("value") or "")
+        if ":" in m:
+            m = m.split(":")[-1]
+        m = m.replace("Member", "").replace("_", " ").strip()
+        if m:
+            parts.append(m[:72])
+    return " · ".join(parts) if parts else "segment"
+
+
+def extract_segment_dimensional_facts(
+    company_facts: dict[str, Any],
+    *,
+    max_rows: int = 200,
+) -> list[dict[str, Any]]:
+    """Dimensional facts (segment / axis) when present in the company-facts JSON.
+
+    Many large filers omit segment rows from the public bulk JSON; this returns [] then.
+    When rows exist, they power TickerChat answers for segment operating income / revenue.
+    """
+    facts = company_facts.get("facts")
+    if not isinstance(facts, dict):
+        return []
+    us_gaap = facts.get("us-gaap")
+    if not isinstance(us_gaap, dict):
+        return []
+
+    def tag_relevant(tag: str) -> bool:
+        t = tag
+        return any(
+            k in t
+            for k in (
+                "OperatingIncome",
+                "IncomeLoss",
+                "Revenue",
+                "Segment",
+                "Profit",
+                "ReportingSegment",
+                "CostsAndExpenses",
+            )
+        )
+
+    out: list[dict[str, Any]] = []
+    for tag, node in us_gaap.items():
+        if not isinstance(node, dict) or not tag_relevant(tag):
+            continue
+        rows = _rows_from_units_node(node)
+        for r in rows:
+            if not isinstance(r, dict) or r.get("val") is None:
+                continue
+            segs = r.get("segments")
+            if not segs:
+                continue
+            raw_end = str(r.get("end") or r.get("instant") or "")
+            if len(raw_end) < 10:
+                continue
+            period_end = _normalize_period_day(raw_end)
+            try:
+                v = float(r["val"])
+            except (TypeError, ValueError):
+                continue
+            fp = _row_fp(r)
+            if fp not in QUARTERLY_FP and fp != "FY":
+                continue
+            out.append(
+                {
+                    "metric_tag": tag,
+                    "period_end": period_end,
+                    "value_usd": v,
+                    "segment_label": _segment_member_label(segs),
+                    "fiscal_period": fp,
+                }
+            )
+            if len(out) >= max_rows:
+                return sorted(out, key=lambda x: x["period_end"])
+    return sorted(out, key=lambda x: x["period_end"])
+
+
+def build_segment_reporting_context(filings: list[FilingItem]) -> dict[str, Any]:
+    tenq = next((f for f in filings if f.form == "10-Q"), None)
+    tenk = next((f for f in filings if f.form == "10-K"), None)
+    primary = tenq or tenk
+    summary = (
+        "Segment-level operating income and revenue (e.g., by product line or geography) are in the segment reporting "
+        "footnotes—typically in the 10-Q or 10-K financial statements. The SEC company-facts bulk feed often does not "
+        "include dimensional segment rows; when `segment_facts` below is empty, use the linked filing for authoritative tables."
+    )
+    return {
+        "summary": summary,
+        "filing_url": primary.filing_url if primary else None,
+        "form": primary.form if primary else None,
+        "filed_at": primary.filed_at if primary else None,
+    }
+
+
+def extract_revenue_series(
+    company_facts: dict[str, Any],
+    *,
+    max_points: int = 80,
+) -> list[dict[str, Any]]:
+    """Revenue (USD) from the best revenue tag; quarterly rows only when enough quarters exist (no FY spike)."""
+    tags = [
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "SalesRevenueNet",
+    ]
+    return extract_us_gaap_metric_series(company_facts, tags, max_points=max_points)

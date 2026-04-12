@@ -89,7 +89,8 @@ const JSON_OUTPUT_SUFFIX =
   "\n\nReturn ONE compact JSON object only (no markdown fences, no prose outside the JSON) with keys: " +
   "answer, bullet_points, supporting_sources, unanswered_questions, disclaimer. " +
   "supporting_sources: array of {label, url?, form?}. " +
-  "Keep answer under ~120 words and bullet_points to 3–5 short items so the JSON stays small.";
+  "unanswered_questions: 2–4 short optional follow-up questions the user could ask next (empty array if none). " +
+  "Keep answer under ~160 words and bullet_points to 3–6 short items so the JSON stays small.";
 
 async function readApiError(res: Response): Promise<string> {
   const t = await res.text();
@@ -229,7 +230,7 @@ export async function POST(req: Request) {
     console.error("[api/ask] LLM error:", msg);
     return NextResponse.json(
       {
-        error: "Ask Copilot could not get a response from the language model.",
+        error: "TickerChat could not get a response from the language model.",
         detail: msg,
       },
       { status: 502 },

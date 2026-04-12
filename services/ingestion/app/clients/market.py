@@ -18,6 +18,8 @@ class MarketBundle:
     week_52_high: float | None
     week_52_low: float | None
     price_history: list[dict[str, float | str]]
+    benchmark_history: list[dict[str, float | str]]
+    benchmark_label: str
 
 
 def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
@@ -31,10 +33,17 @@ def _rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return rsi
 
 
+def _day_key(ts) -> str:
+    if hasattr(ts, "date"):
+        return ts.date().isoformat()
+    return pd.to_datetime(ts).date().isoformat()
+
+
 def build_market_bundle(ticker: str) -> MarketBundle:
     t = ticker.upper().strip()
+    label = "S&P 500"
     try:
-        hist = yf.Ticker(t).history(period="400d", auto_adjust=False)
+        hist = yf.Ticker(t).history(period="5y", auto_adjust=False)
         if hist is None or hist.empty:
             raise ValueError("empty history")
 
@@ -50,15 +59,25 @@ def build_market_bundle(ticker: str) -> MarketBundle:
         week_52_high = float(last_year.max()) if len(last_year) else None
         week_52_low = float(last_year.min()) if len(last_year) else None
 
-        tail = hist.tail(120).reset_index()
+        bench_map: dict[str, float] = {}
+        try:
+            bhist = yf.Ticker("^GSPC").history(period="5y", auto_adjust=False)
+            if bhist is not None and not bhist.empty:
+                for ts, row in bhist.iterrows():
+                    bench_map[_day_key(ts)] = float(row["Close"])
+        except Exception as exc:
+            logger.warning("S&P 500 benchmark fetch failed: {}", exc)
+
         price_history: list[dict[str, float | str]] = []
-        for _, row in tail.iterrows():
-            dt = row["Date"]
-            if hasattr(dt, "date"):
-                d = dt.date().isoformat()
-            else:
-                d = pd.to_datetime(dt).date().isoformat()
-            price_history.append({"date": d, "close": float(row["Close"])})
+        benchmark_history: list[dict[str, float | str]] = []
+        for ts, row in hist.iterrows():
+            if pd.isna(row.get("Close")):
+                continue
+            d = _day_key(ts)
+            c = float(row["Close"])
+            price_history.append({"date": d, "close": c})
+            bc = bench_map.get(d)
+            benchmark_history.append({"date": d, "close": bc if bc is not None else None})
 
         return MarketBundle(
             last_close=last_close,
@@ -69,6 +88,8 @@ def build_market_bundle(ticker: str) -> MarketBundle:
             week_52_high=week_52_high,
             week_52_low=week_52_low,
             price_history=price_history,
+            benchmark_history=benchmark_history,
+            benchmark_label=label,
         )
     except Exception as exc:
         logger.warning("yfinance failed for {}: {}", t, exc)
@@ -81,6 +102,8 @@ def build_market_bundle(ticker: str) -> MarketBundle:
             week_52_high=None,
             week_52_low=None,
             price_history=[],
+            benchmark_history=[],
+            benchmark_label=label,
         )
 
 

@@ -2,17 +2,16 @@
 
 import { formatTicker } from "@/lib/format";
 import { Search } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function CompanySearch() {
-  const router = useRouter();
   const [q, setQ] = useState("");
 
   function submit() {
     const t = formatTicker(q);
     if (!t) return;
-    router.push(`/company/${encodeURIComponent(t)}`);
+    const url = `/company/${encodeURIComponent(t)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   return (

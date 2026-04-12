@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "TickerSense",
-  description: "SEC Research Copilot for public company research",
+  description: "SEC research workspace for public company filings, metrics, and TickerChat Q&A",
 };
 
 export default function RootLayout({

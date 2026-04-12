@@ -1,12 +1,12 @@
 "use client";
 
 import { SourcePill } from "@/components/company/source-pill";
-import { askCopilot } from "@/lib/api";
+import { askTickerChat } from "@/lib/api";
 import {
   clearChat,
   loadChat,
   saveChat,
-  type CopilotChatTurn,
+  type TickerChatTurn,
 } from "@/lib/chat-storage";
 import type { CompanyPayload } from "@/lib/types";
 import { formatDate } from "@/lib/format";
@@ -19,9 +19,9 @@ function newId(): string {
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
+export function TickerChatPanel({ data }: { data: CompanyPayload }) {
   const [q, setQ] = useState("What should I read first to understand the last quarter?");
-  const [turns, setTurns] = useState<CopilotChatTurn[]>([]);
+  const [turns, setTurns] = useState<TickerChatTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -30,22 +30,18 @@ export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
     setTurns(loadChat(data.ticker));
   }, [data.ticker]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns]);
-
   const disabled = useMemo(() => loading || !q.trim(), [loading, q]);
 
   async function submit() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await askCopilot({
+      const res = await askTickerChat({
         ticker: data.ticker,
         question: q.trim(),
         companyContext: data,
       });
-      const turn: CopilotChatTurn = {
+      const turn: TickerChatTurn = {
         id: newId(),
         question: q.trim(),
         response: res,
@@ -57,6 +53,9 @@ export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
         return next;
       });
       setQ("");
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -72,15 +71,15 @@ export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
 
   return (
     <div
-      id="ask-copilot"
+      id="ticker-chat"
       className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-950">Ask Copilot</h2>
+          <h2 className="text-lg font-semibold text-slate-950">TickerChat</h2>
           <p className="mt-1 text-sm text-slate-600">
             Grounded Q&amp;A over the structured workspace context. No buy/sell guidance. History is kept
-            for this tab until you clear it (included in PDF export).
+            for this tab until you clear it (included in PDF export). Shift+Enter for a new line; Enter sends.
           </p>
         </div>
         {turns.length ? (
@@ -110,6 +109,12 @@ export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
         <textarea
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (!disabled) void submit();
+            }
+          }}
           rows={3}
           placeholder="Ask about filings, risks, or where to read next…"
           className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm outline-none ring-brand-200 focus:border-brand-400 focus:ring-4"
@@ -128,7 +133,7 @@ export function AskCopilotPanel({ data }: { data: CompanyPayload }) {
   );
 }
 
-function TurnBlock({ turn }: { turn: CopilotChatTurn }) {
+function TurnBlock({ turn }: { turn: TickerChatTurn }) {
   const out = turn.response;
   return (
     <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -137,7 +142,7 @@ function TurnBlock({ turn }: { turn: CopilotChatTurn }) {
       </p>
       <p className="text-sm text-slate-800">{turn.question}</p>
       <div className="border-t border-slate-100 pt-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Copilot</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">TickerChat</p>
         <p className="mt-2 text-sm leading-relaxed text-slate-800">{out.answer}</p>
         {out.bullet_points.length ? (
           <div className="mt-3">
@@ -165,7 +170,9 @@ function TurnBlock({ turn }: { turn: CopilotChatTurn }) {
 
         {out.unanswered_questions.length ? (
           <div className="mt-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Still open</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Suggested follow-ups
+            </p>
             <ul className="mt-2 space-y-2 text-sm text-slate-700">
               {out.unanswered_questions.map((b) => (
                 <li key={b}>• {b}</li>
