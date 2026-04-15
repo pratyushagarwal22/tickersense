@@ -9,7 +9,7 @@ export function CompanyHeader({ data }: { data: CompanyPayload }) {
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800 ring-1 ring-brand-100">
             <Building2 className="h-4 w-4" />
-            SEC research workspace
+            SEC Research Workspace
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 md:text-4xl">

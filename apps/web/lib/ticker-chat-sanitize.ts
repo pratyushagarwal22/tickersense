@@ -15,6 +15,10 @@ function sanitizeParagraph(s: string): string {
     [/\brevenue_series\b|\bnet_income_series\b|\boperating_expenses_series\b/gi, "the financial series"],
   ];
   for (const [re, to] of reps) t = t.replace(re, to);
+  // Remove “context plumbing” phrasing — user should see what we know, not what we omitted.
+  t = t.replace(/\b(referenced|mentioned)\s+but\s+not\s+(fully\s+)?excerpted\s+in\s+the\s+context\b/gi, "not included in the excerpt shown here");
+  t = t.replace(/\bnot\s+fully\s+excerpted\s+in\s+the\s+context\b/gi, "not included in the excerpt shown here");
+  t = t.replace(/\bthe\s+provided\s+context\s+does\s+not\s+contain\s+the\s+full\s+text\b/gi, "the excerpt shown here doesn’t include the full text");
   return t;
 }
 

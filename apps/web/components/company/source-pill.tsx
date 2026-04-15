@@ -9,17 +9,17 @@ export function SourcePill({ source }: { source: SourceRef }) {
         href={source.url}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 hover:border-brand-300 hover:bg-white"
+        className="inline-flex max-w-full items-start gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-brand-300 hover:bg-white"
       >
-        <span className="max-w-[240px] truncate">{text}</span>
+        <span className="min-w-0 max-w-full whitespace-normal break-words sm:max-w-[520px]">{text}</span>
         <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
       </a>
     );
   }
 
   return (
-    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
-      {text}
+    <span className="inline-flex max-w-full items-start rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+      <span className="min-w-0 max-w-full whitespace-normal break-words sm:max-w-[520px]">{text}</span>
     </span>
   );
 }

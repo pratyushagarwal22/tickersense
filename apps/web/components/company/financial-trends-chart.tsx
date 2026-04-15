@@ -8,7 +8,7 @@ import {
 } from "@/lib/financial-trends";
 import type { CompanyPayload } from "@/lib/types";
 import { formatCompactUsd, formatDate } from "@/lib/format";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -25,6 +25,17 @@ const TREND_YEARS = 5;
 type Row = FinancialTrendRow & { t: number };
 
 export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 640px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+
   const chartData = useMemo(() => {
     const { revenue, netIncome, opex } = applySharedFinancialWindow(
       data.revenue_series ?? [],
@@ -56,6 +67,17 @@ export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
     () => Array.from(new Set(chartData.map((r) => r.t))).sort((a, b) => a - b),
     [chartData],
   );
+
+  const displayTicks = useMemo(() => {
+    if (!isMobile) return xTicks;
+    if (xTicks.length <= 8) return xTicks;
+    const max = 7;
+    const out: number[] = [];
+    const step = Math.max(1, Math.ceil(xTicks.length / max));
+    for (let i = 0; i < xTicks.length; i += step) out.push(xTicks[i]!);
+    if (out[out.length - 1] !== xTicks[xTicks.length - 1]) out.push(xTicks[xTicks.length - 1]!);
+    return out;
+  }, [isMobile, xTicks]);
 
   const yDomain = useMemo((): [number, number] | undefined => {
     const vals: number[] = [];
@@ -97,7 +119,7 @@ export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
                 dataKey="t"
                 type="number"
                 domain={["dataMin", "dataMax"]}
-                ticks={xTicks}
+                ticks={displayTicks}
                 interval={0}
                 minTickGap={0}
                 tickFormatter={(v) => {
@@ -106,9 +128,9 @@ export function FinancialTrendsChart({ data }: { data: CompanyPayload }) {
                 }}
                 tick={{ fontSize: 9 }}
                 stroke="#94a3b8"
-                angle={-42}
+                angle={isMobile ? -28 : -42}
                 textAnchor="end"
-                height={68}
+                height={isMobile ? 52 : 68}
               />
               <YAxis
                 tick={{ fontSize: 10 }}

@@ -23,7 +23,7 @@ export function inferAskFilingSupplementNeeds(question: string): AskFilingSupple
   const q = question;
   return {
     deepRisk:
-      /\b(risk\s*factors?|item\s*1a|1a\b|export\s*control|china|sanction|geopolitic|litigation|regulat\w*|compliance|cyber|subpoena|investigation)\b/i.test(
+      /\b(risk\s*factors?|item\s*1a|1a\b|export\s*control|china|sanction|geopolitic|litigation|regulat\w*|compliance|cyber|subpoena|investigation|supply\s*chain|capacity|constraint|bottleneck|shortage|logistics)\b/i.test(
         q,
       ) || /\b10-?k\b.*\b(risk|disclosure)\b/i.test(q),
     deepMdna:
@@ -72,7 +72,7 @@ export async function buildAskFilingSupplement(
         timeoutMs: FETCH_TIMEOUT_MS,
       });
       if (raw.length > 500) {
-        const risk = extractRiskFactorsExcerptDeep(raw, 42_000);
+        const risk = extractRiskFactorsExcerptDeep(raw, 55_000);
         if (risk.length > 400 && wordCount(risk) > 120) {
           chunks.push(
             `=== Latest 10-K (filed ${latestK.filed_at}) — Item 1A / risk factors (fetched for this question) ===\n${risk}`,
@@ -86,7 +86,7 @@ export async function buildAskFilingSupplement(
         timeoutMs: FETCH_TIMEOUT_MS,
       });
       if (rawPrior.length > 500) {
-        const riskPrior = extractRiskFactorsExcerptDeep(rawPrior, 36_000);
+        const riskPrior = extractRiskFactorsExcerptDeep(rawPrior, 45_000);
         if (riskPrior.length > 400 && wordCount(riskPrior) > 120) {
           chunks.push(
             `=== Prior 10-K (filed ${priorK.filed_at}) — Item 1A / risk factors (fetched for YoY comparison) ===\n${riskPrior}`,
@@ -133,6 +133,6 @@ export async function buildAskFilingSupplement(
   await run();
 
   const joined = chunks.join("\n\n");
-  if (joined.length > 52_000) return `${joined.slice(0, 52_000)}\n…[supplement truncated]`;
+  if (joined.length > 70_000) return `${joined.slice(0, 70_000)}\n…[supplement truncated]`;
   return joined;
 }

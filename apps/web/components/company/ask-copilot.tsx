@@ -13,10 +13,32 @@ import { formatDate } from "@/lib/format";
 import { Loader2, Send, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const LOADING_MESSAGES = [
+  "Reading SEC filings…",
+  "Pulling company disclosures…",
+  "Extracting relevant sections…",
+  "Reviewing official documents…",
+  "Gathering evidence from SEC filings…",
+  "Connecting filings and financials…",
+  "Verifying against SEC sources…",
+  "Preparing your answer…",
+  "Grounding the answer in company filings…",
+  "Finding what matters in the filings…",
+  "Digging into the SEC documents…",
+  "Preparing an evidence-based response…",
+  "Looking for relevant sections in the filings…",
+] as const;
+
 function newId(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function pickLoadingMessage(): string {
+  const n = LOADING_MESSAGES.length;
+  if (!n) return "Preparing your answer…";
+  return LOADING_MESSAGES[Math.floor(Math.random() * n)]!;
 }
 
 const STARTER_QUESTIONS = [
@@ -29,8 +51,50 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
   const [q, setQ] = useState("");
   const [turns, setTurns] = useState<TickerChatTurn[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingTarget, setLoadingTarget] = useState<string>(pickLoadingMessage());
+  const [loadingTyped, setLoadingTyped] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
   const scrollAfterTurnId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingTyped("");
+      return;
+    }
+
+    setLoadingTyped("");
+
+    const full = loadingTarget || pickLoadingMessage();
+    let i = 0;
+    let typingId: number | null = null;
+    let nextMsgId: number | null = null;
+
+    const typeNext = () => {
+      i++;
+      setLoadingTyped(full.slice(0, i));
+      if (i >= full.length) {
+        if (nextMsgId != null) window.clearTimeout(nextMsgId);
+        nextMsgId = window.setTimeout(() => {
+          // Let the completed message linger a bit so it’s readable.
+          setLoadingTyped("");
+          nextMsgId = window.setTimeout(() => {
+            setLoadingTarget(pickLoadingMessage());
+          }, 260);
+        }, 1400);
+        return;
+      }
+      // Slightly slower “typewriter” feel so the status line is readable.
+      typingId = window.setTimeout(typeNext, 55 + Math.floor(Math.random() * 35));
+    };
+
+    // Brief pause before typing starts.
+    typingId = window.setTimeout(typeNext, 160);
+
+    return () => {
+      if (typingId != null) window.clearTimeout(typingId);
+      if (nextMsgId != null) window.clearTimeout(nextMsgId);
+    };
+  }, [loading, loadingTarget]);
 
   useEffect(() => {
     setTurns(loadChat(data.ticker));
@@ -60,6 +124,7 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
   async function submit(questionOverride?: string) {
     const question = (questionOverride ?? q).trim();
     if (!question) return;
+    setLoadingTarget(pickLoadingMessage());
     setLoading(true);
     setErr(null);
     try {
@@ -180,20 +245,33 @@ export function TickerChatPanel({ data }: { data: CompanyPayload }) {
           placeholder="Ask about filings, risks, segments, or where to read next…"
           className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-3 text-sm shadow-sm outline-none ring-brand-200 focus:border-brand-400 focus:ring-4"
         />
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => void submit()}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Ask
-          </button>
-          <p className="text-xs text-slate-500 sm:text-right">
-            <span className="font-medium text-slate-600">Shift+Enter</span> new line ·{" "}
-            <span className="font-medium text-slate-600">Enter</span> sends
-          </p>
+        <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          {loading ? (
+            <p className="text-xs font-normal text-slate-500">
+              <span className="whitespace-pre">{loadingTyped.length ? loadingTyped : " "}</span>
+              <span className="inline-block w-[0.6ch] animate-pulse text-slate-400">|</span>
+            </p>
+          ) : (
+            <div />
+          )}
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+            <div className="flex w-full items-center justify-start gap-2 sm:w-auto">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : null}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => void submit()}
+                className="inline-flex w-full min-w-44 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                <Send className="h-4 w-4" />
+                Ask
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 sm:text-right">
+              <span className="font-medium text-slate-600">Shift+Enter</span> new line ·{" "}
+              <span className="font-medium text-slate-600">Enter</span> sends
+            </p>
+          </div>
         </div>
       </div>
     </div>

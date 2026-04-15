@@ -11,7 +11,14 @@ export function CompanySearch() {
     const t = formatTicker(q);
     if (!t) return;
     const url = `/company/${encodeURIComponent(t)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    // Use a real link click so the new tab shows the URL immediately (avoids about:blank flash).
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     setQ("");
   }
 

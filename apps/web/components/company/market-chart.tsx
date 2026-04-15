@@ -2,7 +2,7 @@
 
 import type { CompanyPayload } from "@/lib/types";
 import { formatCompactUsd, formatDate } from "@/lib/format";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -25,6 +25,16 @@ type IdxRow = {
 
 export function MarketChart({ data }: { data: CompanyPayload }) {
   const benchLabel = data.benchmark_label ?? "S&P 500";
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 640px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
 
   const { chartData, hasBench, mode } = useMemo(() => {
     const ph = data.price_history ?? [];
@@ -90,7 +100,7 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
     const hi = Math.max(...vals);
     const span = hi - lo || 1;
     // Extra headroom so indexed min/max labels and the S&P 500 line are not clipped at the plot edge.
-    const pad = Math.max(span * 0.22, mode === "indexed" ? 18 : 4);
+    const pad = Math.max(span * 0.3, mode === "indexed" ? 26 : 6);
     return [lo - pad, hi + pad];
   }, [chartData, mode]);
 
@@ -104,6 +114,22 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
     if (out[out.length - 1] !== dates[dates.length - 1]) out.push(dates[dates.length - 1]!);
     return out;
   }, [chartData]);
+
+  const mobileTicks = useMemo(() => {
+    if (!isMobile) return dateTicks;
+    const dates = chartData.map((p) => p.date);
+    const mondays = dates.filter((d) => {
+      const dt = new Date(d + "T00:00:00Z");
+      return !Number.isNaN(dt.getTime()) && dt.getUTCDay() === 1;
+    });
+    const base = mondays.length >= 6 ? mondays : dates;
+    const out: string[] = [];
+    const max = 9;
+    const step = Math.max(1, Math.ceil(base.length / max));
+    for (let i = 0; i < base.length; i += step) out.push(base[i]!);
+    if (out[out.length - 1] !== base[base.length - 1]) out.push(base[base.length - 1]!);
+    return out;
+  }, [chartData, dateTicks, isMobile]);
 
   const title = data.meta.mock
     ? "Price Trends (demo data)"
@@ -133,15 +159,15 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
               dataKey="date"
-              ticks={dateTicks}
+              ticks={mobileTicks}
               interval={0}
               minTickGap={0}
               tickFormatter={(d) => formatDate(String(d))}
               tick={{ fontSize: 9 }}
               stroke="#94a3b8"
-              angle={-38}
+              angle={isMobile ? -24 : -38}
               textAnchor="end"
-              height={56}
+              height={isMobile ? 44 : 56}
             />
             <YAxis
               tick={{ fontSize: 11 }}
@@ -233,7 +259,7 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
                   label={{
                     value: `${minMax.min.stockIdx.toFixed(1)}`,
                     position: "bottom",
-                    offset: 14,
+                    offset: 24,
                     fontSize: 11,
                     fill: "#475569",
                     fontWeight: 600,
@@ -249,7 +275,7 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
                   label={{
                     value: `${minMax.max.stockIdx.toFixed(1)}`,
                     position: "top",
-                    offset: 14,
+                    offset: 24,
                     fontSize: 11,
                     fill: "#475569",
                     fontWeight: 600,
@@ -269,7 +295,7 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
                   label={{
                     value: formatCompactUsd(minMax.min.stock),
                     position: "bottom",
-                    offset: 14,
+                    offset: 24,
                     fontSize: 11,
                     fill: "#475569",
                     fontWeight: 600,
@@ -285,7 +311,7 @@ export function MarketChart({ data }: { data: CompanyPayload }) {
                   label={{
                     value: formatCompactUsd(minMax.max.stock),
                     position: "top",
-                    offset: 14,
+                    offset: 24,
                     fontSize: 11,
                     fill: "#475569",
                     fontWeight: 600,
